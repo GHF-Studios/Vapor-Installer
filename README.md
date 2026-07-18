@@ -15,7 +15,9 @@ Run `vapor-installer` with no arguments to open the visual installer. The
 installer is the user-facing lifecycle surface for install, uninstall, and
 developer-mode upgrade/downgrade flows. Steam launch wrappers call only the
 narrow headless install command so ordinary launches do not ask testers to make
-setup decisions.
+setup decisions. The dedicated Steam Installer launch option should call the
+same wrapper with the `installer` argument, which opens this visual surface
+directly instead of running the quiet player-mode install first.
 
 ## Headless command shape
 
