@@ -4,9 +4,8 @@
 //! human-facing adapter used by `vapor-installer`.
 
 use crate::{
-    BootstrapStatus, BootstrapUninstallOptions, ComponentStatus, DevEnvStatus, INSTALLER_LOG,
-    InstallerOptions, InstallerReport, bootstrap_install, bootstrap_status, bootstrap_uninstall,
-    dev_env_install, dev_env_status, dev_env_uninstall,
+    ComponentStatus, DevEnvStatus, INSTALLER_LOG, InstallerOptions, InstallerReport, PlayerStatus,
+    dev_env_install, dev_env_status, dev_env_uninstall, install, player_status, uninstall,
 };
 use std::{
     env,
@@ -34,12 +33,25 @@ pub fn run_from_env() -> Result<(), String> {
     match command.as_str() {
         "status" => {
             let options = parse_options(args)?;
-            let bootstrap = bootstrap_status(&options)?;
+            let player = player_status(&options)?;
             let dev_env = dev_env_status(&options)?;
-            print_status(&bootstrap, &dev_env);
+            print_status(&player, &dev_env);
         }
-        "bootstrap" => run_bootstrap(args, quiet)?,
-        "dev-env" | "devenv" => run_dev_env(args, quiet)?,
+        "install" => {
+            let options = parse_options(args)?;
+            let report = install(&options)?;
+            if !quiet {
+                print_report("Install", &report);
+            }
+        }
+        "uninstall" => {
+            let options = parse_options(args)?;
+            let report = uninstall(&options)?;
+            if !quiet {
+                print_report("Uninstall", &report);
+            }
+        }
+        "dev-env" => run_dev_env(args, quiet)?,
         other => {
             return Err(format!(
                 "unknown command '{other}'\nhelp: run `vapor-installer --help`"
@@ -55,7 +67,7 @@ fn run_wizard() -> Result<(), String> {
     loop {
         clear_screen();
         print_wizard_frame(
-            &bootstrap_status(&InstallerOptions {
+            &player_status(&InstallerOptions {
                 app_root: Some(app_root.clone()),
                 dry_run: false,
             })?,
@@ -68,76 +80,78 @@ fn run_wizard() -> Result<(), String> {
         match prompt("Select an action")?.trim() {
             "1" => {
                 preview_report(
-                    "Runtime Bootstrap",
-                    &bootstrap_install(&InstallerOptions {
+                    "Player-Mode Install",
+                    &install(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: true,
                     })?,
                 );
-                if confirm("Install/reconcile runtime bootstrap now?")? {
-                    let report = bootstrap_install(&InstallerOptions {
+                if confirm("Install/reconcile player mode now?")? {
+                    let report = install(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: false,
                     })?;
-                    print_report("Runtime Bootstrap", &report);
+                    print_report("Player-Mode Install", &report);
                     pause()?;
                 }
             }
             "2" => {
                 preview_report(
-                    "Development Environment",
+                    "Uninstall",
+                    &uninstall(&InstallerOptions {
+                        app_root: Some(app_root.clone()),
+                        dry_run: true,
+                    })?,
+                );
+                if confirm("Remove all installer-managed app-root state now?")? {
+                    let report = uninstall(&InstallerOptions {
+                        app_root: Some(app_root.clone()),
+                        dry_run: false,
+                    })?;
+                    print_report("Uninstall", &report);
+                    pause()?;
+                }
+            }
+            "3" => {
+                preview_report(
+                    "Upgrade to Developer Mode",
                     &dev_env_install(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: true,
                     })?,
                 );
-                if confirm("Install/reconcile development environment now?")? {
+                if confirm("Upgrade to developer mode now?")? {
                     let report = dev_env_install(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: false,
                     })?;
-                    print_report("Development Environment", &report);
-                    pause()?;
-                }
-            }
-            "3" => {
-                let options = BootstrapUninstallOptions {
-                    app_root: Some(app_root.clone()),
-                    dry_run: true,
-                    include_content_cache: false,
-                };
-                preview_report("Remove Runtime Bootstrap", &bootstrap_uninstall(&options)?);
-                if confirm("Remove runtime bootstrap tooling and generated installer state?")? {
-                    let report = bootstrap_uninstall(&BootstrapUninstallOptions {
-                        app_root: Some(app_root.clone()),
-                        dry_run: false,
-                        include_content_cache: false,
-                    })?;
-                    print_report("Remove Runtime Bootstrap", &report);
+                    print_report("Upgrade to Developer Mode", &report);
                     pause()?;
                 }
             }
             "4" => {
                 preview_report(
-                    "Remove Development Environment",
+                    "Downgrade to Player Mode",
                     &dev_env_uninstall(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: true,
                     })?,
                 );
-                if confirm("Remove Rust/Cargo and cross-build development tooling?")? {
+                if confirm(
+                    "Downgrade to player mode by removing Rust/Cargo and cross-build tooling?",
+                )? {
                     let report = dev_env_uninstall(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: false,
                     })?;
-                    print_report("Remove Development Environment", &report);
+                    print_report("Downgrade to Player Mode", &report);
                     pause()?;
                 }
             }
             "5" => {
                 println!();
                 print_status(
-                    &bootstrap_status(&InstallerOptions {
+                    &player_status(&InstallerOptions {
                         app_root: Some(app_root.clone()),
                         dry_run: false,
                     })?,
@@ -158,7 +172,7 @@ fn run_wizard() -> Result<(), String> {
 }
 
 fn resolve_wizard_app_root() -> Result<PathBuf, String> {
-    match bootstrap_status(&InstallerOptions::default()) {
+    match player_status(&InstallerOptions::default()) {
         Ok(status) => Ok(status.app_root().to_path_buf()),
         Err(error) => {
             clear_screen();
@@ -173,41 +187,13 @@ fn resolve_wizard_app_root() -> Result<PathBuf, String> {
             println!("Enter the Steam app root path.");
             let value = prompt("App root")?;
             let app_root = PathBuf::from(value.trim());
-            let status = bootstrap_status(&InstallerOptions {
+            let status = player_status(&InstallerOptions {
                 app_root: Some(app_root),
                 dry_run: false,
             })?;
             Ok(status.app_root().to_path_buf())
         }
     }
-}
-
-fn run_bootstrap(mut args: Vec<String>, quiet: bool) -> Result<(), String> {
-    let Some(command) = take_subcommand(&mut args) else {
-        return Err("missing bootstrap subcommand: status, install, or uninstall".to_owned());
-    };
-    match command.as_str() {
-        "status" => {
-            let options = parse_options(args)?;
-            print_bootstrap_status(&bootstrap_status(&options)?);
-        }
-        "install" => {
-            let options = parse_options(args)?;
-            let report = bootstrap_install(&options)?;
-            if !quiet {
-                print_report("Bootstrap Install", &report);
-            }
-        }
-        "uninstall" => {
-            let options = parse_bootstrap_uninstall_options(args)?;
-            let report = bootstrap_uninstall(&options)?;
-            if !quiet {
-                print_report("Bootstrap Uninstall", &report);
-            }
-        }
-        other => return Err(format!("unknown bootstrap subcommand '{other}'")),
-    }
-    Ok(())
 }
 
 fn run_dev_env(mut args: Vec<String>, quiet: bool) -> Result<(), String> {
@@ -223,14 +209,14 @@ fn run_dev_env(mut args: Vec<String>, quiet: bool) -> Result<(), String> {
             let options = parse_options(args)?;
             let report = dev_env_install(&options)?;
             if !quiet {
-                print_report("Development Environment Install", &report);
+                print_report("Developer Mode Install", &report);
             }
         }
         "uninstall" => {
             let options = parse_options(args)?;
             let report = dev_env_uninstall(&options)?;
             if !quiet {
-                print_report("Development Environment Uninstall", &report);
+                print_report("Developer Mode Uninstall", &report);
             }
         }
         other => return Err(format!("unknown dev-env subcommand '{other}'")),
@@ -278,33 +264,6 @@ fn parse_options(args: Vec<String>) -> Result<InstallerOptions, String> {
     Ok(InstallerOptions { app_root, dry_run })
 }
 
-fn parse_bootstrap_uninstall_options(
-    args: Vec<String>,
-) -> Result<BootstrapUninstallOptions, String> {
-    let mut app_root = None;
-    let mut dry_run = false;
-    let mut include_content_cache = false;
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--app-root" => {
-                let value = iter
-                    .next()
-                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
-                app_root = Some(PathBuf::from(value));
-            }
-            "--dry-run" => dry_run = true,
-            "--include-content-cache" => include_content_cache = true,
-            other => return Err(format!("unknown option '{other}'")),
-        }
-    }
-    Ok(BootstrapUninstallOptions {
-        app_root,
-        dry_run,
-        include_content_cache,
-    })
-}
-
 fn print_help() {
     println!("Vapor Installer");
     println!();
@@ -312,11 +271,8 @@ fn print_help() {
     println!();
     println!("Usage");
     println!("  vapor-installer status [--app-root PATH]");
-    println!("  vapor-installer bootstrap status [--app-root PATH]");
-    println!("  vapor-installer bootstrap install [--app-root PATH] [--dry-run]");
-    println!(
-        "  vapor-installer bootstrap uninstall [--app-root PATH] [--dry-run] [--include-content-cache]"
-    );
+    println!("  vapor-installer install [--app-root PATH] [--dry-run]");
+    println!("  vapor-installer uninstall [--app-root PATH] [--dry-run]");
     println!("  vapor-installer dev-env status [--app-root PATH]");
     println!("  vapor-installer dev-env install [--app-root PATH] [--dry-run]");
     println!("  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]");
@@ -326,43 +282,47 @@ fn print_help() {
     println!();
     println!("Notes");
     println!(
-        "  Bootstrap prepares app-local Git, SteamCMD, Vapor-Registry, and disposable app-root state."
+        "  install prepares player mode: app-local Git, SteamCMD, Vapor-Registry, and disposable app-root state."
     );
-    println!("  Development environment install/uninstall is explicit and installer-owned.");
+    println!(
+        "  uninstall removes all installer-managed app-root state; Steam uninstall removes depot-owned files."
+    );
+    println!("  dev-env install upgrades player mode with Rust/Cargo and cross-build tooling.");
+    println!("  dev-env uninstall downgrades developer mode back to player mode.");
     println!("  Log: <app-root>/{INSTALLER_LOG}");
 }
 
-fn print_wizard_frame(bootstrap: &BootstrapStatus, dev_env: &DevEnvStatus) {
+fn print_wizard_frame(player: &PlayerStatus, dev_env: &DevEnvStatus) {
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║                      Vapor Installer                       ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
     println!();
     println!("App root");
-    println!("  {}", bootstrap.app_root().display());
+    println!("  {}", player.app_root().display());
     println!();
     println!("Readiness");
     println!(
-        "  Runtime bootstrap:       {}",
-        readiness_label(bootstrap.ready())
+        "  Player mode:             {}",
+        readiness_label(player.ready())
     );
     println!(
         "    Git:                   {}",
-        readiness_label(bootstrap.git().ready())
+        readiness_label(player.git().ready())
     );
     println!(
         "    SteamCMD:              {}",
-        readiness_label(bootstrap.steamcmd().ready())
+        readiness_label(player.steamcmd().ready())
     );
     println!(
         "    Vapor-Registry:        {}",
-        readiness_label(bootstrap.registry().ready())
+        readiness_label(player.registry().ready())
     );
     println!(
         "    Generated directories: {}",
-        readiness_label(bootstrap.directories().ready())
+        readiness_label(player.directories().ready())
     );
     println!(
-        "  Development environment: {}",
+        "  Developer mode:           {}",
         readiness_label(dev_env.ready())
     );
     println!(
@@ -375,10 +335,10 @@ fn print_wizard_frame(bootstrap: &BootstrapStatus, dev_env: &DevEnvStatus) {
     );
     println!();
     println!("Actions");
-    println!("  [1] Install / update runtime bootstrap");
-    println!("  [2] Install / update development environment");
-    println!("  [3] Uninstall runtime bootstrap");
-    println!("  [4] Uninstall development environment");
+    println!("  [1] Install / update player mode");
+    println!("  [2] Uninstall installer-managed state");
+    println!("  [3] Upgrade to developer mode");
+    println!("  [4] Downgrade to player mode");
     println!("  [5] Show detailed status");
     println!("  [Q] Exit");
     println!();
@@ -389,16 +349,16 @@ fn print_wizard_frame(bootstrap: &BootstrapStatus, dev_env: &DevEnvStatus) {
     println!();
 }
 
-fn print_status(bootstrap: &BootstrapStatus, dev_env: &DevEnvStatus) {
+fn print_status(player: &PlayerStatus, dev_env: &DevEnvStatus) {
     println!("Vapor Installer Status");
     println!();
-    print_bootstrap_status(bootstrap);
+    print_player_status(player);
     println!();
     print_dev_env_status(dev_env);
 }
 
-fn print_bootstrap_status(status: &BootstrapStatus) {
-    println!("Bootstrap");
+fn print_player_status(status: &PlayerStatus) {
+    println!("Player Mode");
     println!("  App root: {}", status.app_root().display());
     println!("  Ready: {}", yes_no(status.ready()));
     print_component(status.git());
@@ -407,14 +367,14 @@ fn print_bootstrap_status(status: &BootstrapStatus) {
     print_component(status.directories());
     if !status.ready() {
         println!(
-            "  Next: vapor-installer bootstrap install --app-root {}",
+            "  Next: vapor-installer install --app-root {}",
             status.app_root().display()
         );
     }
 }
 
 fn print_dev_env_status(status: &DevEnvStatus) {
-    println!("Development Environment");
+    println!("Developer Mode");
     println!("  App root: {}", status.app_root().display());
     println!("  Ready: {}", yes_no(status.ready()));
     print_component(status.rust());
@@ -448,7 +408,12 @@ fn print_report(title: &str, report: &InstallerReport) {
             "applied"
         }
     );
-    println!("  Log: {}", report.app_root().join(INSTALLER_LOG).display());
+    let log = report.app_root().join(INSTALLER_LOG);
+    if report.dry_run() || log.exists() {
+        println!("  Log: {}", log.display());
+    } else {
+        println!("  Log: removed with installer-managed state");
+    }
     println!();
     println!("Actions");
     for action in report.actions() {

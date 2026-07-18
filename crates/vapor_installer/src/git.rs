@@ -37,7 +37,7 @@ pub(crate) fn git_executable(app_root: &Path) -> Result<PathBuf, String> {
         .find(|path| is_healthy_git(path, app_root))
         .ok_or_else(|| {
             format!(
-                "app-local Git is not ready\nhelp: run `vapor-installer bootstrap install --app-root {}`",
+                "app-local Git is not ready\nhelp: run `vapor-installer install --app-root {}`",
                 app_root.display()
             )
         })
@@ -142,7 +142,7 @@ fn find_host_git(app_root: &Path) -> Result<HostGit, String> {
         format!("rejected candidates:\n  - {}", rejected.join("\n  - "))
     };
     Err(format!(
-        "cannot install Git: no usable host Git is available to import\n{detail}\nhelp: install Git with the operating-system package manager, then run `vapor-installer bootstrap install --app-root <app-root>`\nnote: Vapor imports a real Git binary into tools/git; it will not install a wrapper that delegates to system Git"
+        "cannot install Git: no usable host Git is available to import\n{detail}\nhelp: install Git with the operating-system package manager, then run `vapor-installer install --app-root <app-root>`\nnote: Vapor imports a real Git binary into tools/git; it will not install a wrapper that delegates to system Git"
     ))
 }
 

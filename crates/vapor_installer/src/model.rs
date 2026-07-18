@@ -19,20 +19,9 @@ pub struct InstallerOptions {
     pub dry_run: bool,
 }
 
-/// Bootstrap uninstall options.
-#[derive(Debug, Clone, Default)]
-pub struct BootstrapUninstallOptions {
-    /// Explicit Steam app root.
-    pub app_root: Option<PathBuf>,
-    /// Preview removals without mutating the app root.
-    pub dry_run: bool,
-    /// Also remove recreateable Workshop/package cache directories.
-    pub include_content_cache: bool,
-}
-
-/// Status for the app-root bootstrap surface.
+/// Status for the default app-root player-mode install.
 #[derive(Debug, Clone)]
-pub struct BootstrapStatus {
+pub struct PlayerStatus {
     app_root: PathBuf,
     git: ComponentStatus,
     steamcmd: ComponentStatus,
@@ -40,7 +29,7 @@ pub struct BootstrapStatus {
     directories: ComponentStatus,
 }
 
-impl BootstrapStatus {
+impl PlayerStatus {
     pub(crate) fn new(
         app_root: PathBuf,
         git: ComponentStatus,
@@ -82,7 +71,7 @@ impl BootstrapStatus {
         &self.directories
     }
 
-    /// Whether bootstrap is ready for normal closed-alpha runtime use.
+    /// Whether player-mode tooling is ready for normal closed-alpha runtime use.
     pub fn ready(&self) -> bool {
         self.git.ready()
             && self.steamcmd.ready()

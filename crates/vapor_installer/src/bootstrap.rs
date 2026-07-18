@@ -1,6 +1,6 @@
-//! Runtime bootstrap operations.
+//! Default player-mode install operations.
 //!
-//! Bootstrap is the minimum app-local preparation required for ordinary
+//! Player mode is the minimum app-local preparation required for ordinary
 //! closed-alpha use: Git, SteamCMD, the public registry checkout, and generated
 //! disposable app-root state. It deliberately does not install Rust/Cargo.
 
@@ -8,14 +8,11 @@ use crate::{
     acquire::{download, downloads_dir, extract_zip},
     app_root::resolve_app_root,
     fsutil::{
-        Logger, ensure_contained, is_executable, relative_label, remove_path, reset_directory,
-        write_receipt,
+        Logger, ensure_contained, is_executable, relative_label, remove_empty_dir, remove_path,
+        reset_directory, write_receipt,
     },
     git::{bootstrap_git, git_executable, git_status},
-    model::{
-        BootstrapStatus, BootstrapUninstallOptions, ComponentStatus, InstallerOptions,
-        InstallerReport,
-    },
+    model::{ComponentStatus, InstallerOptions, InstallerReport, PlayerStatus},
     paths::{
         basic_directories, is_registry_checkout, registry_path, steam_candidates, steam_executable,
     },
@@ -27,32 +24,32 @@ const STEAMCMD_LINUX: &str =
 const STEAMCMD_WINDOWS: &str = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
 const VAPOR_REGISTRY_URL: &str = "https://github.com/GHF-Studios/Vapor-Registry.git";
 
-/// Inspect bootstrap readiness.
+/// Inspect player-mode readiness.
 ///
 /// # Errors
 ///
 /// Fails when no valid app root can be resolved.
-pub fn bootstrap_status(options: &InstallerOptions) -> Result<BootstrapStatus, String> {
+pub fn player_status(options: &InstallerOptions) -> Result<PlayerStatus, String> {
     let app_root = resolve_app_root(options.app_root.as_deref())?;
-    Ok(inspect_bootstrap_root(&app_root))
+    Ok(inspect_player_root(&app_root))
 }
 
-/// Install or reconcile basic runtime bootstrap tooling.
+/// Install or reconcile default player-mode tooling.
 ///
 /// # Errors
 ///
 /// Fails when acquisition, extraction, verification, or path confinement fails.
-pub fn bootstrap_install(options: &InstallerOptions) -> Result<InstallerReport, String> {
+pub fn player_install(options: &InstallerOptions) -> Result<InstallerReport, String> {
     let app_root = resolve_app_root(options.app_root.as_deref())?;
-    let mut actions = bootstrap_install_actions(&app_root);
+    let mut actions = player_install_actions(&app_root);
     if options.dry_run {
         return Ok(InstallerReport::new(app_root, true, actions));
     }
 
     let mut logger = Logger::open(&app_root)?;
-    logger.log("bootstrap install started");
+    logger.log("player install started");
     create_basic_directories(&app_root, &mut actions, Some(&mut logger))?;
-    let before = inspect_bootstrap_root(&app_root);
+    let before = inspect_player_root(&app_root);
     if !before.git().ready() {
         bootstrap_git(&app_root, &mut logger)?;
         actions.push("installed app-local Git".to_owned());
@@ -65,45 +62,33 @@ pub fn bootstrap_install(options: &InstallerOptions) -> Result<InstallerReport, 
     } else {
         actions.push("kept existing app-local SteamCMD".to_owned());
     }
-    if !inspect_bootstrap_root(&app_root).registry().ready() {
+    if !inspect_player_root(&app_root).registry().ready() {
         bootstrap_registry(&app_root, &mut logger)?;
         actions.push("checked out app-local Vapor-Registry".to_owned());
     } else {
         update_registry_checkout(&app_root, &mut logger)?;
         actions.push("updated app-local Vapor-Registry checkout".to_owned());
     }
-    write_receipt(&app_root, "bootstrap", "ready")?;
-    logger.log("bootstrap install finished");
+    write_receipt(&app_root, "player", "ready")?;
+    logger.log("player install finished");
 
-    let after = inspect_bootstrap_root(&app_root);
+    let after = inspect_player_root(&app_root);
     if !after.ready() {
-        logger.log("bootstrap verification failed");
-        return Err(format_bootstrap_missing(&after));
+        logger.log("player-mode verification failed");
+        return Err(format_player_missing(&after));
     }
     Ok(InstallerReport::new(app_root, false, actions))
 }
 
-/// Uninstall basic runtime bootstrap tooling and generated disposable state.
+/// Uninstall default player-mode tooling and generated disposable app-root state.
 ///
 /// # Errors
 ///
 /// Fails when a target path escapes the app root or removal fails.
-pub fn bootstrap_uninstall(options: &BootstrapUninstallOptions) -> Result<InstallerReport, String> {
+pub fn player_uninstall(options: &InstallerOptions) -> Result<InstallerReport, String> {
     let app_root = resolve_app_root(options.app_root.as_deref())?;
-    let mut paths = vec![
-        app_root.join("tools/git"),
-        app_root.join("tools/steamcmd"),
-        app_root.join(".vapor/registry"),
-        app_root.join(".vapor/downloads"),
-        app_root.join(".vapor/extract"),
-        app_root.join(".vapor/state/installer/bootstrap.toml"),
-    ];
-    if options.include_content_cache {
-        paths.extend([
-            app_root.join("content/cache"),
-            app_root.join("content/workshop/downloads"),
-        ]);
-    }
+    let paths = player_uninstall_paths(&app_root);
+    let empty_dirs = player_empty_parent_dirs(&app_root);
 
     let mut actions = Vec::new();
     for path in &paths {
@@ -118,26 +103,72 @@ pub fn bootstrap_uninstall(options: &BootstrapUninstallOptions) -> Result<Instal
             relative_label(&app_root, path)
         ));
     }
+    for path in &empty_dirs {
+        ensure_contained(&app_root, path)?;
+        actions.push(format!(
+            "{} {}",
+            if path.exists() {
+                "remove if empty"
+            } else {
+                "skip absent"
+            },
+            relative_label(&app_root, path)
+        ));
+    }
     if options.dry_run {
         return Ok(InstallerReport::new(app_root, true, actions));
     }
 
     let mut logger = Logger::open(&app_root)?;
-    logger.log("bootstrap uninstall started");
+    logger.log("player uninstall started");
+    for action in &actions {
+        logger.log(format!("planned {action}"));
+    }
+    logger.log("player uninstall removing generated app-root state");
+    drop(logger);
+
     for path in &paths {
         remove_path(&app_root, path)?;
-        logger.log(format!("removed {}", relative_label(&app_root, path)));
     }
-    logger.log("bootstrap uninstall finished");
+    for path in &empty_dirs {
+        remove_empty_dir(&app_root, path)?;
+    }
     Ok(InstallerReport::new(app_root, false, actions))
 }
 
-pub(crate) fn bootstrap_install_actions(app_root: &Path) -> Vec<String> {
+fn player_uninstall_paths(app_root: &Path) -> Vec<std::path::PathBuf> {
+    vec![
+        app_root.join("tools/git"),
+        app_root.join("tools/steamcmd"),
+        app_root.join(".vapor/registry"),
+        app_root.join(".vapor/downloads"),
+        app_root.join(".vapor/extract"),
+        app_root.join(".vapor/state"),
+        app_root.join(".vapor/diagnostics"),
+        app_root.join(".vapor/logs"),
+        app_root.join("bin/.vapor"),
+        app_root.join("content/cache"),
+        app_root.join("content/installed"),
+        app_root.join("content/workshop/downloads"),
+        app_root.join("output"),
+    ]
+}
+
+fn player_empty_parent_dirs(app_root: &Path) -> Vec<std::path::PathBuf> {
+    vec![
+        app_root.join("content/workshop"),
+        app_root.join("content"),
+        app_root.join("tools"),
+        app_root.join(".vapor"),
+    ]
+}
+
+pub(crate) fn player_install_actions(app_root: &Path) -> Vec<String> {
     let mut actions = basic_directories()
         .iter()
         .map(|relative| format!("ensure directory {}", app_root.join(relative).display()))
         .collect::<Vec<_>>();
-    let status = inspect_bootstrap_root(app_root);
+    let status = inspect_player_root(app_root);
     actions.push(format!(
         "{} app-local Git at {}",
         if status.git().ready() {
@@ -168,7 +199,7 @@ pub(crate) fn bootstrap_install_actions(app_root: &Path) -> Vec<String> {
     actions
 }
 
-pub(crate) fn inspect_bootstrap_root(app_root: &Path) -> BootstrapStatus {
+pub(crate) fn inspect_player_root(app_root: &Path) -> PlayerStatus {
     let (git_ready, git_path) = git_status(app_root);
     let git = ComponentStatus::new(
         "Git",
@@ -221,7 +252,7 @@ pub(crate) fn inspect_bootstrap_root(app_root: &Path) -> BootstrapStatus {
         missing,
     );
 
-    BootstrapStatus::new(app_root.to_path_buf(), git, steamcmd, registry, directories)
+    PlayerStatus::new(app_root.to_path_buf(), git, steamcmd, registry, directories)
 }
 
 fn create_basic_directories(
@@ -345,9 +376,9 @@ fn registry_worktree_clean(app_root: &Path, target: &Path) -> Result<bool, Strin
     }
 }
 
-fn format_bootstrap_missing(status: &BootstrapStatus) -> String {
+fn format_player_missing(status: &PlayerStatus) -> String {
     format!(
-        "bootstrap verification failed\n{}\n{}\n{}\n{}",
+        "player-mode install verification failed\n{}\n{}\n{}\n{}",
         format_component_missing(status.git()),
         format_component_missing(status.steamcmd()),
         format_component_missing(status.registry()),

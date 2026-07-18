@@ -5,8 +5,7 @@ use std::{
 };
 
 use vapor_installer::{
-    BootstrapUninstallOptions, InstallerOptions, bootstrap_install, bootstrap_uninstall,
-    dev_env_uninstall,
+    InstallerOptions, dev_env_uninstall, install, player_install, player_uninstall, uninstall,
 };
 
 struct TestTree {
@@ -42,15 +41,15 @@ impl Drop for TestTree {
 }
 
 #[test]
-fn bootstrap_install_dry_run_does_not_mutate_app_root() {
-    let tree = TestTree::new("bootstrap-dry-run");
+fn install_dry_run_does_not_mutate_app_root() {
+    let tree = TestTree::new("install-dry-run");
     let app_root = tree.app_root();
 
-    let report = bootstrap_install(&InstallerOptions {
+    let report = install(&InstallerOptions {
         app_root: Some(app_root.clone()),
         dry_run: true,
     })
-    .expect("dry-run bootstrap install");
+    .expect("dry-run install");
 
     assert!(report.dry_run());
     assert!(!app_root.join(".vapor").exists());
@@ -65,18 +64,18 @@ fn bootstrap_install_dry_run_does_not_mutate_app_root() {
 
 #[cfg(unix)]
 #[test]
-fn bootstrap_install_creates_dirs_when_tools_are_already_present() {
-    let tree = TestTree::new("bootstrap-dirs");
+fn install_creates_dirs_when_tools_are_already_present() {
+    let tree = TestTree::new("install-dirs");
     let app_root = tree.app_root();
     write_registry_checkout(&app_root);
     write_tool(&app_root.join("tools/git/bin/git"));
     write_tool(&app_root.join("tools/steamcmd/steamcmd"));
 
-    let report = bootstrap_install(&InstallerOptions {
+    let report = player_install(&InstallerOptions {
         app_root: Some(app_root.clone()),
         dry_run: false,
     })
-    .expect("bootstrap install");
+    .expect("player install");
 
     assert!(!report.dry_run());
     for relative in [
@@ -122,10 +121,10 @@ fn dev_env_uninstall_dry_run_keeps_basic_tools() {
 
 #[cfg(unix)]
 #[test]
-fn bootstrap_uninstall_removes_symlink_without_deleting_target() {
+fn player_uninstall_removes_symlink_without_deleting_target() {
     use std::os::unix::fs::symlink;
 
-    let tree = TestTree::new("bootstrap-symlink");
+    let tree = TestTree::new("player-symlink");
     let app_root = tree.app_root();
     let external = tree.root.join("external-registry");
     fs::create_dir_all(&external).expect("create external target");
@@ -133,16 +132,64 @@ fn bootstrap_uninstall_removes_symlink_without_deleting_target() {
     fs::create_dir_all(app_root.join(".vapor")).expect("create vapor dir");
     symlink(&external, app_root.join(".vapor/registry")).expect("create registry symlink");
 
-    let report = bootstrap_uninstall(&BootstrapUninstallOptions {
+    let report = player_uninstall(&InstallerOptions {
         app_root: Some(app_root.clone()),
         dry_run: false,
-        include_content_cache: false,
     })
-    .expect("bootstrap uninstall");
+    .expect("player uninstall");
 
     assert!(!report.dry_run());
     assert!(!app_root.join(".vapor/registry").exists());
     assert!(external.join("marker.txt").is_file());
+}
+
+#[test]
+fn uninstall_dry_run_covers_all_installer_managed_state() {
+    let tree = TestTree::new("uninstall-scope");
+    let app_root = tree.app_root();
+
+    let report = uninstall(&InstallerOptions {
+        app_root: Some(app_root),
+        dry_run: true,
+    })
+    .expect("dry-run uninstall");
+
+    let actions = report.actions().join("\n");
+    for expected in [
+        "rustup",
+        "rustup-home",
+        "cargo-home",
+        "tools/zig",
+        "tools/llvm-mingw",
+        "tools/cross",
+        "tools/git",
+        "tools/steamcmd",
+        ".vapor/registry",
+        ".vapor/downloads",
+        ".vapor/extract",
+        ".vapor/state",
+        ".vapor/diagnostics",
+        ".vapor/logs",
+        "bin/.vapor",
+        "content/cache",
+        "content/installed",
+        "content/workshop/downloads",
+        "output",
+    ] {
+        assert!(actions.contains(expected), "missing {expected}: {actions}");
+    }
+    for depot_owned in [
+        "bin/x86_64",
+        "docs",
+        "examples",
+        ".vapor/launch",
+        ".vapor/scripts",
+    ] {
+        assert!(
+            !actions.contains(depot_owned),
+            "should not remove depot-owned {depot_owned}: {actions}"
+        );
+    }
 }
 
 #[cfg(unix)]

@@ -99,6 +99,31 @@ pub(crate) fn remove_path(app_root: &Path, target: &Path) -> Result<(), String> 
     }
 }
 
+pub(crate) fn remove_empty_dir(app_root: &Path, target: &Path) -> Result<(), String> {
+    ensure_contained(app_root, target)?;
+    let Ok(metadata) = fs::symlink_metadata(target) else {
+        return Ok(());
+    };
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+    match fs::remove_dir(target) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "failed to remove empty directory '{}': {error}",
+            target.display()
+        )),
+    }
+}
+
 pub(crate) fn write_receipt(app_root: &Path, name: &str, status: &str) -> Result<(), String> {
     let path = app_root
         .join(".vapor/state/installer")

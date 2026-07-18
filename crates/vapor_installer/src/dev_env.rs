@@ -1,7 +1,7 @@
 //! Explicit development-environment operations.
 //!
 //! This module owns Rust/Cargo and cross-build tooling. These operations are
-//! intentionally separate from runtime bootstrap so ordinary closed-alpha
+//! intentionally separate from player-mode install so ordinary closed-alpha
 //! installs do not download a compiler toolchain.
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
         verify_sha256_with_sha256sum,
     },
     app_root::resolve_app_root,
-    bootstrap::{bootstrap_install, bootstrap_install_actions},
+    bootstrap::{player_install, player_install_actions},
     fsutil::{
         Logger, copy_app_file, copy_app_tree, ensure_contained, executable, is_executable,
         is_healthy_executable, make_executable, relative_label, remove_path, reset_directory,
@@ -62,11 +62,11 @@ pub fn dev_env_install(options: &InstallerOptions) -> Result<InstallerReport, St
     let app_root = resolve_app_root(options.app_root.as_deref())?;
     let mut actions = dev_env_install_actions(&app_root);
     if options.dry_run {
-        actions.extend(bootstrap_install_actions(&app_root));
+        actions.extend(player_install_actions(&app_root));
         return Ok(InstallerReport::new(app_root, true, actions));
     }
 
-    bootstrap_install(&InstallerOptions {
+    player_install(&InstallerOptions {
         app_root: Some(app_root.clone()),
         dry_run: false,
     })?;

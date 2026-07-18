@@ -11,12 +11,13 @@ pub mod cli;
 mod dev_env;
 mod fsutil;
 mod git;
+mod lifecycle;
 mod model;
 mod paths;
 
-pub use bootstrap::{bootstrap_install, bootstrap_status, bootstrap_uninstall};
+pub use bootstrap::{player_install, player_status, player_uninstall};
 pub use dev_env::{dev_env_install, dev_env_status, dev_env_uninstall};
+pub use lifecycle::{install, uninstall};
 pub use model::{
-    BootstrapStatus, BootstrapUninstallOptions, ComponentStatus, DevEnvStatus, INSTALLER_LOG,
-    InstallerOptions, InstallerReport,
+    ComponentStatus, DevEnvStatus, INSTALLER_LOG, InstallerOptions, InstallerReport, PlayerStatus,
 };
