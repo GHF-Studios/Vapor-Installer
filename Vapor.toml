@@ -1,0 +1,8 @@
+schema = 1
+
+[workspace]
+name = "vapor-installer"
+organization = "ghf-studios"
+version = "0.5.0"
+repository = "https://github.com/GHF-Studios/Vapor-Installer"
+binaries = ["vapor-installer"]
