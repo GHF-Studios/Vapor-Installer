@@ -1,13 +1,17 @@
 //! App-root discovery and manifest role checks.
 //!
-//! Installer operations are always scoped to a directory whose `Vapor.toml`
-//! declares `[root]`. This keeps destructive uninstall paths confined to the
-//! Steam application root and prevents accidental cleanup of source checkouts.
+//! Installer operations are always scoped to a directory whose
+//! `App.vapor.toml` declares `[root]`. This keeps destructive uninstall paths
+//! confined to the Steam application root and prevents accidental cleanup of
+//! source checkouts.
 
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
+
+pub(crate) const APP_MANIFEST: &str = "App.vapor.toml";
+pub(crate) const REGISTRY_MANIFEST: &str = "Registry.vapor.toml";
 
 /// Resolve a Vapor Steam app root from an explicit path, the running binary, or
 /// the current directory.
@@ -26,11 +30,14 @@ pub(crate) fn resolve_app_root(explicit: Option<&Path>) -> Result<PathBuf, Strin
     for candidate in candidates {
         match fs::canonicalize(&candidate) {
             Ok(path) if path.is_dir() => {
-                let marker = path.join("Vapor.toml");
+                let marker = path.join(APP_MANIFEST);
                 if marker.is_file() && manifest_declares_root(&marker)? {
                     return Ok(path);
                 }
-                rejected.push(format!("{} (missing root Vapor.toml)", candidate.display()));
+                rejected.push(format!(
+                    "{} (missing root {APP_MANIFEST})",
+                    candidate.display()
+                ));
             }
             Ok(path) => rejected.push(format!("{} (not a directory)", path.display())),
             Err(error) => rejected.push(format!("{} ({error})", candidate.display())),

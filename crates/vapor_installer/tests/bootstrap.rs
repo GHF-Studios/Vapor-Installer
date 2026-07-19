@@ -1,12 +1,14 @@
+#[cfg(unix)]
+use std::path::Path;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use vapor_installer::{
-    InstallerOptions, dev_env_uninstall, install, player_install, player_uninstall, uninstall,
-};
+use vapor_installer::{InstallerOptions, dev_env_uninstall, install, uninstall};
+#[cfg(unix)]
+use vapor_installer::{player_install, player_uninstall};
 
 struct TestTree {
     root: PathBuf,
@@ -29,7 +31,7 @@ impl TestTree {
     fn app_root(&self) -> PathBuf {
         let app_root = self.root.join("app");
         fs::create_dir_all(&app_root).expect("create app root");
-        fs::write(app_root.join("Vapor.toml"), "[root]\n").expect("write root manifest");
+        fs::write(app_root.join("App.vapor.toml"), "[root]\n").expect("write root manifest");
         app_root
     }
 }
@@ -170,7 +172,6 @@ fn uninstall_dry_run_covers_all_installer_managed_state() {
         ".vapor/state",
         ".vapor/diagnostics",
         ".vapor/logs",
-        "bin/.vapor",
         "content/cache",
         "content/installed",
         "content/workshop/downloads",
@@ -182,8 +183,8 @@ fn uninstall_dry_run_covers_all_installer_managed_state() {
         "bin/x86_64",
         "docs",
         "examples",
-        ".vapor/launch",
-        ".vapor/scripts",
+        "bin/vapor-launch",
+        "resources/vapor",
     ] {
         assert!(
             !actions.contains(depot_owned),
@@ -209,5 +210,6 @@ fn write_tool(path: &Path) {
 fn write_registry_checkout(app_root: &Path) {
     let registry = app_root.join(".vapor/registry");
     fs::create_dir_all(registry.join(".git")).expect("create registry git dir");
-    fs::write(registry.join("Vapor.toml"), "[registry]\n").expect("write registry manifest");
+    fs::write(registry.join("Registry.vapor.toml"), "[registry]\n")
+        .expect("write registry manifest");
 }

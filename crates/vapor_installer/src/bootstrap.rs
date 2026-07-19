@@ -17,7 +17,11 @@ use crate::{
         basic_directories, is_registry_checkout, registry_path, steam_candidates, steam_executable,
     },
 };
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::Path,
+    process::{Command, Output},
+};
 
 const STEAMCMD_LINUX: &str =
     "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
@@ -146,7 +150,6 @@ fn player_uninstall_paths(app_root: &Path) -> Vec<std::path::PathBuf> {
         app_root.join(".vapor/state"),
         app_root.join(".vapor/diagnostics"),
         app_root.join(".vapor/logs"),
-        app_root.join("bin/.vapor"),
         app_root.join("content/cache"),
         app_root.join("content/installed"),
         app_root.join("content/workshop/downloads"),
@@ -304,20 +307,17 @@ fn bootstrap_registry(app_root: &Path, logger: &mut Logger) -> Result<(), String
     ensure_contained(app_root, &target)?;
     remove_path(app_root, &target)?;
     let git = git_executable(app_root)?;
-    let status = Command::new(&git)
-        .args(["clone", VAPOR_REGISTRY_URL])
+    let mut command = Command::new(&git);
+    command
+        .args(["clone", "--quiet", VAPOR_REGISTRY_URL])
         .arg(&target)
-        .env("VAPOR_HOME", app_root)
-        .status()
-        .map_err(|error| format!("failed to start Git clone for Vapor-Registry: {error}"))?;
-    if !status.success() {
-        return Err(format!("Vapor-Registry clone exited with {status}"));
-    }
+        .env("VAPOR_HOME", app_root);
+    run_quiet_command(command, "Vapor-Registry clone")?;
     if is_registry_checkout(&target) {
         Ok(())
     } else {
         Err(format!(
-            "Vapor-Registry checkout at '{}' did not contain a valid [registry] Vapor.toml",
+            "Vapor-Registry checkout at '{}' did not contain a valid Registry.vapor.toml",
             target.display()
         ))
     }
@@ -335,22 +335,12 @@ fn update_registry_checkout(app_root: &Path, logger: &mut Logger) -> Result<(), 
     }
     logger.log("updating Vapor-Registry");
     let git = git_executable(app_root)?;
-    let status = Command::new(&git)
+    let mut command = Command::new(&git);
+    command
         .current_dir(&target)
         .args(["pull", "--ff-only"])
-        .env("VAPOR_HOME", app_root)
-        .status()
-        .map_err(|error| {
-            format!(
-                "failed to start Git pull in Vapor-Registry '{}': {error}",
-                target.display()
-            )
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Vapor-Registry update exited with {status}"))
-    }
+        .env("VAPOR_HOME", app_root);
+    run_quiet_command(command, "Vapor-Registry update")
 }
 
 fn registry_worktree_clean(app_root: &Path, target: &Path) -> Result<bool, String> {
@@ -373,6 +363,41 @@ fn registry_worktree_clean(app_root: &Path, target: &Path) -> Result<bool, Strin
             "Vapor-Registry status check exited with {}",
             output.status
         ))
+    }
+}
+
+fn run_quiet_command(mut command: Command, label: &str) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("failed to start {label}: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "{label} exited with {}\n{}",
+        output.status,
+        captured_output(&output)
+    ))
+}
+
+fn captured_output(output: &Output) -> String {
+    let mut detail = String::new();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.trim().is_empty() {
+        detail.push_str("stdout:\n");
+        detail.push_str(stdout.trim());
+        detail.push('\n');
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        detail.push_str("stderr:\n");
+        detail.push_str(stderr.trim());
+        detail.push('\n');
+    }
+    if detail.is_empty() {
+        "no command output captured".to_owned()
+    } else {
+        detail
     }
 }
 

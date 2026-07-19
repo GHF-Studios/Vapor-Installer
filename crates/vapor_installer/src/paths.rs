@@ -1,7 +1,7 @@
 //! App-local path conventions.
 
 use crate::{
-    app_root::manifest_declares_registry,
+    app_root::{REGISTRY_MANIFEST, manifest_declares_registry},
     fsutil::{executable, is_executable},
 };
 use std::path::{Path, PathBuf};
@@ -44,7 +44,7 @@ pub(crate) fn registry_path(app_root: &Path) -> PathBuf {
 
 pub(crate) fn is_registry_checkout(path: &Path) -> bool {
     path.join(".git").is_dir()
-        && manifest_declares_registry(&path.join("Vapor.toml")).unwrap_or(false)
+        && manifest_declares_registry(&path.join(REGISTRY_MANIFEST)).unwrap_or(false)
 }
 
 pub(crate) fn steam_executable(app_root: &Path) -> PathBuf {

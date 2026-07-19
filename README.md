@@ -65,9 +65,9 @@ files:
 
    This removes Rust/Cargo and cross-build tooling if present, app-local Git,
    SteamCMD, `.vapor/registry`, downloads/extracts, `.vapor/state`,
-   `.vapor/diagnostics`, `.vapor/logs`, `bin/.vapor`, generated `content/`
-   state, and `output/`. It does not remove depot-owned shell binaries, docs,
-   examples, launch wrappers, scripts, or `Vapor.toml`.
+   `.vapor/diagnostics`, `.vapor/logs`, generated `content/` state, and
+   `output/`. It does not remove depot-owned shell binaries, docs, examples,
+   launch wrappers, scripts, or `App.vapor.toml`.
 
 3. Use Steam's uninstall feature to remove the depot-owned application files,
    including Vapor Shell, docs, launch wrappers, and `vapor-installer` itself.
