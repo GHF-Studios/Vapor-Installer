@@ -141,40 +141,6 @@ pub(crate) fn write_receipt(app_root: &Path, name: &str, status: &str) -> Result
         .map_err(|error| format!("failed to write '{}': {error}", path.display()))
 }
 
-pub(crate) fn copy_external_file(
-    app_root: &Path,
-    source: &Path,
-    target: &Path,
-) -> Result<(), String> {
-    ensure_contained(app_root, target)?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
-    }
-    fs::copy(source, target).map_err(|error| {
-        format!(
-            "failed to copy host file '{}' to '{}': {error}",
-            source.display(),
-            target.display()
-        )
-    })?;
-    make_executable(target)
-}
-
-pub(crate) fn copy_external_tree(
-    app_root: &Path,
-    source: &Path,
-    destination: &Path,
-) -> Result<(), String> {
-    let canonical = fs::canonicalize(source).map_err(|error| {
-        format!(
-            "failed to resolve host Git path '{}': {error}",
-            source.display()
-        )
-    })?;
-    copy_external_tree_entry(app_root, &canonical, destination)
-}
-
 pub(crate) fn copy_app_tree(
     app_root: &Path,
     source: &Path,
@@ -200,10 +166,6 @@ pub(crate) fn copy_app_file(app_root: &Path, source: &Path, target: &Path) -> Re
         )
     })?;
     make_executable(target)
-}
-
-pub(crate) fn path_is_inside(path: &Path, root: &Path) -> bool {
-    fs::canonicalize(root).is_ok_and(|root| path.starts_with(root))
 }
 
 pub(crate) struct Logger {
@@ -239,40 +201,6 @@ pub(crate) fn timestamp() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}.{:09}Z", duration.as_secs(), duration.subsec_nanos())
-}
-
-fn copy_external_tree_entry(
-    app_root: &Path,
-    source: &Path,
-    destination: &Path,
-) -> Result<(), String> {
-    ensure_contained(app_root, destination)?;
-    let metadata = fs::metadata(source).map_err(|error| {
-        format!(
-            "failed to inspect host Git path '{}': {error}",
-            source.display()
-        )
-    })?;
-    if metadata.is_dir() {
-        fs::create_dir_all(destination)
-            .map_err(|error| format!("failed to create '{}': {error}", destination.display()))?;
-        for entry in fs::read_dir(source).map_err(|error| {
-            format!(
-                "failed to read host Git path '{}': {error}",
-                source.display()
-            )
-        })? {
-            let entry = entry.map_err(|error| format!("failed to read host Git entry: {error}"))?;
-            copy_external_tree_entry(
-                app_root,
-                &entry.path(),
-                &destination.join(entry.file_name()),
-            )?;
-        }
-    } else if metadata.is_file() {
-        copy_external_file(app_root, source, destination)?;
-    }
-    Ok(())
 }
 
 fn copy_app_tree_entry(source: &Path, destination: &Path, item_root: &Path) -> Result<(), String> {

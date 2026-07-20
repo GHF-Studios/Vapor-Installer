@@ -281,9 +281,7 @@ fn print_help() {
     println!("  --quiet  Suppress success output for launch-time installer calls.");
     println!();
     println!("Notes");
-    println!(
-        "  install prepares player mode: app-local Git, SteamCMD, Vapor-Registry, and disposable app-root state."
-    );
+    println!("  install prepares player mode: SteamCMD and disposable app-root state.");
     println!(
         "  uninstall removes all installer-managed app-root state; Steam uninstall removes depot-owned files."
     );
@@ -306,16 +304,8 @@ fn print_wizard_frame(player: &PlayerStatus, dev_env: &DevEnvStatus) {
         readiness_label(player.ready())
     );
     println!(
-        "    Git:                   {}",
-        readiness_label(player.git().ready())
-    );
-    println!(
         "    SteamCMD:              {}",
         readiness_label(player.steamcmd().ready())
-    );
-    println!(
-        "    Vapor-Registry:        {}",
-        readiness_label(player.registry().ready())
     );
     println!(
         "    Generated directories: {}",
@@ -361,9 +351,7 @@ fn print_player_status(status: &PlayerStatus) {
     println!("Player Mode");
     println!("  App root: {}", status.app_root().display());
     println!("  Ready: {}", yes_no(status.ready()));
-    print_component(status.git());
     print_component(status.steamcmd());
-    print_component(status.registry());
     print_component(status.directories());
     if !status.ready() {
         println!(

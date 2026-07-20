@@ -10,7 +10,6 @@ mod bootstrap;
 pub mod cli;
 mod dev_env;
 mod fsutil;
-mod git;
 mod lifecycle;
 mod model;
 mod paths;

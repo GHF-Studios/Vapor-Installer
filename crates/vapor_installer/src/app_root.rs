@@ -11,7 +11,6 @@ use std::{
 };
 
 pub(crate) const APP_MANIFEST: &str = "App.vapor.toml";
-pub(crate) const REGISTRY_MANIFEST: &str = "Registry.vapor.toml";
 
 /// Resolve a Vapor Steam app root from an explicit path, the running binary, or
 /// the current directory.
@@ -51,10 +50,6 @@ pub(crate) fn resolve_app_root(explicit: Option<&Path>) -> Result<PathBuf, Strin
 
 pub(crate) fn manifest_declares_root(path: &Path) -> Result<bool, String> {
     manifest_declares_table(path, "root")
-}
-
-pub(crate) fn manifest_declares_registry(path: &Path) -> Result<bool, String> {
-    manifest_declares_table(path, "registry")
 }
 
 fn default_app_root_candidates() -> Vec<PathBuf> {

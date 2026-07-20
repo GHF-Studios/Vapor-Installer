@@ -8,7 +8,7 @@ use std::{
 
 use vapor_installer::{InstallerOptions, dev_env_uninstall, install, uninstall};
 #[cfg(unix)]
-use vapor_installer::{player_install, player_uninstall};
+use vapor_installer::{player_status, player_uninstall};
 
 struct TestTree {
     root: PathBuf,
@@ -55,7 +55,6 @@ fn install_dry_run_does_not_mutate_app_root() {
 
     assert!(report.dry_run());
     assert!(!app_root.join(".vapor").exists());
-    assert!(report.actions().iter().any(|action| action.contains("Git")));
     assert!(
         report
             .actions()
@@ -66,20 +65,10 @@ fn install_dry_run_does_not_mutate_app_root() {
 
 #[cfg(unix)]
 #[test]
-fn install_creates_dirs_when_tools_are_already_present() {
-    let tree = TestTree::new("install-dirs");
+fn player_status_does_not_require_git_cli() {
+    let tree = TestTree::new("status-no-git-cli");
     let app_root = tree.app_root();
-    write_registry_checkout(&app_root);
-    write_tool(&app_root.join("tools/git/bin/git"));
     write_tool(&app_root.join("tools/steamcmd/steamcmd"));
-
-    let report = player_install(&InstallerOptions {
-        app_root: Some(app_root.clone()),
-        dry_run: false,
-    })
-    .expect("player install");
-
-    assert!(!report.dry_run());
     for relative in [
         ".vapor/state",
         ".vapor/state/installer",
@@ -91,17 +80,25 @@ fn install_creates_dirs_when_tools_are_already_present() {
         "content/workshop/downloads",
         "tools",
     ] {
-        assert!(app_root.join(relative).is_dir(), "missing {relative}");
+        fs::create_dir_all(app_root.join(relative)).expect("create generated dir");
     }
+
+    let status = player_status(&InstallerOptions {
+        app_root: Some(app_root.clone()),
+        dry_run: false,
+    })
+    .expect("player status");
+
+    assert!(status.ready());
+    assert!(status.steamcmd().ready());
+    assert!(status.directories().ready());
 }
 
 #[test]
 fn dev_env_uninstall_dry_run_keeps_basic_tools() {
     let tree = TestTree::new("dev-env-dry-run");
     let app_root = tree.app_root();
-    fs::create_dir_all(app_root.join("tools/git/bin")).expect("create git bin");
     fs::create_dir_all(app_root.join("tools/steamcmd")).expect("create steamcmd dir");
-    fs::write(app_root.join("tools/git/bin/git"), "").expect("write git marker");
     fs::write(app_root.join("tools/steamcmd/steamcmd"), "").expect("write steamcmd marker");
 
     let report = dev_env_uninstall(&InstallerOptions {
@@ -111,13 +108,12 @@ fn dev_env_uninstall_dry_run_keeps_basic_tools() {
     .expect("dry-run dev-env uninstall");
 
     assert!(report.dry_run());
-    assert!(app_root.join("tools/git/bin/git").exists());
     assert!(app_root.join("tools/steamcmd/steamcmd").exists());
     assert!(
         report
             .actions()
             .iter()
-            .all(|action| !action.contains("tools/git") && !action.contains("tools/steamcmd"))
+            .all(|action| !action.contains("tools/steamcmd"))
     );
 }
 
@@ -204,12 +200,4 @@ fn write_tool(path: &Path) {
     let mut permissions = fs::metadata(path).expect("tool metadata").permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions).expect("make tool executable");
-}
-
-#[cfg(unix)]
-fn write_registry_checkout(app_root: &Path) {
-    let registry = app_root.join(".vapor/registry");
-    fs::create_dir_all(registry.join(".git")).expect("create registry git dir");
-    fs::write(registry.join("Registry.vapor.toml"), "[registry]\n")
-        .expect("write registry manifest");
 }

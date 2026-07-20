@@ -23,25 +23,19 @@ pub struct InstallerOptions {
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
     app_root: PathBuf,
-    git: ComponentStatus,
     steamcmd: ComponentStatus,
-    registry: ComponentStatus,
     directories: ComponentStatus,
 }
 
 impl PlayerStatus {
     pub(crate) fn new(
         app_root: PathBuf,
-        git: ComponentStatus,
         steamcmd: ComponentStatus,
-        registry: ComponentStatus,
         directories: ComponentStatus,
     ) -> Self {
         Self {
             app_root,
-            git,
             steamcmd,
-            registry,
             directories,
         }
     }
@@ -51,19 +45,9 @@ impl PlayerStatus {
         &self.app_root
     }
 
-    /// App-local Git status.
-    pub fn git(&self) -> &ComponentStatus {
-        &self.git
-    }
-
     /// App-local SteamCMD status.
     pub fn steamcmd(&self) -> &ComponentStatus {
         &self.steamcmd
-    }
-
-    /// App-local Vapor-Registry checkout status.
-    pub fn registry(&self) -> &ComponentStatus {
-        &self.registry
     }
 
     /// Required generated directory status.
@@ -73,10 +57,7 @@ impl PlayerStatus {
 
     /// Whether player-mode tooling is ready for normal closed-alpha runtime use.
     pub fn ready(&self) -> bool {
-        self.git.ready()
-            && self.steamcmd.ready()
-            && self.registry.ready()
-            && self.directories.ready()
+        self.steamcmd.ready() && self.directories.ready()
     }
 }
 

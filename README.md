@@ -33,9 +33,7 @@ vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]
 `install` is the normal closed-alpha player-mode preparation path. It is safe to
 run repeatedly and prepares only basic functionality:
 
-- app-local Git under `tools/git`;
 - app-local SteamCMD under `tools/steamcmd`;
-- app-local Vapor-Registry checkout under `.vapor/registry`;
 - app-local disposable state, log, diagnostics, and content-cache directories.
 
 `dev-env install` is the explicit developer-mode upgrade path. It first ensures
@@ -63,8 +61,8 @@ files:
    vapor-installer uninstall --app-root /path/to/steam/app
    ```
 
-   This removes Rust/Cargo and cross-build tooling if present, app-local Git,
-   SteamCMD, `.vapor/registry`, downloads/extracts, `.vapor/state`,
+   This removes Rust/Cargo and cross-build tooling if present, obsolete
+   app-local Git/registry state if present, SteamCMD, downloads/extracts, `.vapor/state`,
    `.vapor/diagnostics`, `.vapor/logs`, generated `content/` state, and
    `output/`. It does not remove depot-owned shell binaries, docs, examples,
    launch wrappers, scripts, or `App.vapor.toml`.
@@ -83,7 +81,6 @@ The crate is split by installer responsibility:
 - `app_root`: app-root discovery and `[root]` manifest checks.
 - `bootstrap`: internal player-mode install/uninstall/status implementation.
 - `dev_env`: explicit Rust/Cargo and cross-build development tooling.
-- `git`: app-local Git acquisition and health checks.
 - `acquire`: download, archive extraction, and checksum helpers.
 - `fsutil`: app-root-contained filesystem mutation helpers.
 - `paths`: shared app-local path conventions.
