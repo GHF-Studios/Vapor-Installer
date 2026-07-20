@@ -199,7 +199,8 @@ fn bootstrap_rust(app_root: &Path, logger: &mut Logger) -> Result<(), String> {
         ));
     }
     let toolchain_id = toolchain.identifier();
-    let status = Command::new(&rustup_init)
+    let mut rustup_init_command = Command::new(&rustup_init);
+    rustup_init_command
         .args([
             "-y",
             "--no-modify-path",
@@ -211,7 +212,9 @@ fn bootstrap_rust(app_root: &Path, logger: &mut Logger) -> Result<(), String> {
             default_host,
         ])
         .env("RUSTUP_HOME", app_root.join("rustup-home"))
-        .env("CARGO_HOME", app_root.join("cargo-home"))
+        .env("CARGO_HOME", app_root.join("cargo-home"));
+    logger.attach_command_output(&mut rustup_init_command);
+    let status = rustup_init_command
         .status()
         .map_err(|error| format!("failed to start rustup-init: {error}"))?;
     if !status.success() {
@@ -228,10 +231,13 @@ fn install_rust_targets_and_components(app_root: &Path, logger: &mut Logger) -> 
     let rustup = app_root.join("rustup/bin").join(executable("rustup"));
     for target in vapor_core::SUPPORTED_TARGET_TRIPLES {
         logger.log(format!("installing Rust target {target}"));
-        let status = Command::new(&rustup)
+        let mut rustup_command = Command::new(&rustup);
+        rustup_command
             .args(["target", "add", target])
             .env("RUSTUP_HOME", app_root.join("rustup-home"))
-            .env("CARGO_HOME", app_root.join("cargo-home"))
+            .env("CARGO_HOME", app_root.join("cargo-home"));
+        logger.attach_command_output(&mut rustup_command);
+        let status = rustup_command
             .status()
             .map_err(|error| format!("failed to start rustup target add {target}: {error}"))?;
         if !status.success() {
@@ -240,14 +246,15 @@ fn install_rust_targets_and_components(app_root: &Path, logger: &mut Logger) -> 
     }
     for component in ["rustfmt", "clippy", "rust-src"] {
         logger.log(format!("installing Rust component {component}"));
-        let status = Command::new(&rustup)
+        let mut rustup_command = Command::new(&rustup);
+        rustup_command
             .args(["component", "add", component])
             .env("RUSTUP_HOME", app_root.join("rustup-home"))
-            .env("CARGO_HOME", app_root.join("cargo-home"))
-            .status()
-            .map_err(|error| {
-                format!("failed to start rustup component add {component}: {error}")
-            })?;
+            .env("CARGO_HOME", app_root.join("cargo-home"));
+        logger.attach_command_output(&mut rustup_command);
+        let status = rustup_command.status().map_err(|error| {
+            format!("failed to start rustup component add {component}: {error}")
+        })?;
         if !status.success() {
             return Err(format!(
                 "rustup component add {component} exited with {status}"
@@ -282,7 +289,7 @@ fn bootstrap_zig(app_root: &Path, logger: &mut Logger) -> Result<(), String> {
         let archive =
             downloads_dir(app_root)?.join(format!("zig-x86_64-linux-{ZIG_VERSION}.tar.xz"));
         download(ZIG_X86_64_LINUX, &archive, logger)?;
-        extract_tar_xz(&archive, &extract_root, "Zig archive")?;
+        extract_tar_xz(&archive, &extract_root, "Zig archive", logger)?;
     }
     let extracted =
         find_extracted_tool_root(&extract_root, PathBuf::from(executable("zig")), "Zig")?;
@@ -309,7 +316,7 @@ fn bootstrap_llvm_mingw(app_root: &Path, logger: &mut Logger) -> Result<(), Stri
         ));
         download(LLVM_MINGW_X86_64_LINUX, &archive, logger)?;
         verify_sha256_with_sha256sum(&archive, LLVM_MINGW_X86_64_LINUX_SHA256)?;
-        extract_tar_xz(&archive, &extract_root, "llvm-mingw archive")?;
+        extract_tar_xz(&archive, &extract_root, "llvm-mingw archive", logger)?;
     }
     let extracted = find_extracted_tool_root(
         &extract_root,

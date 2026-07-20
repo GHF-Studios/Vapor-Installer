@@ -25,33 +25,42 @@ pub(crate) fn download(url: &str, destination: &Path, logger: &mut Logger) -> Re
         fs::create_dir_all(parent)
             .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
     }
-    let curl_status = Command::new("curl")
-        .args(["--proto", "=https", "--tlsv1.2", "-fL", "-o"])
-        .arg(destination)
-        .arg(url)
-        .status();
+    let mut curl = Command::new("curl");
+    curl.args([
+        "--proto",
+        "=https",
+        "--tlsv1.2",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--output",
+    ])
+    .arg(destination)
+    .arg(url);
+    logger.attach_command_output(&mut curl);
+    let curl_status = curl.status();
     match curl_status {
         Ok(status) if status.success() => return Ok(()),
         Ok(status) => logger.log(format!("curl exited with {status}; trying wget")),
         Err(error) => logger.log(format!("failed to start curl: {error}; trying wget")),
     }
-    let wget_status = Command::new("wget")
-        .arg("-O")
-        .arg(destination)
-        .arg(url)
-        .status();
+    let mut wget = Command::new("wget");
+    wget.arg("-O").arg(destination).arg(url);
+    logger.attach_command_output(&mut wget);
+    let wget_status = wget.status();
     match wget_status {
         Ok(status) if status.success() => Ok(()),
         Ok(status) if cfg!(target_os = "windows") => {
             logger.log(format!("wget exited with {status}; trying PowerShell"));
-            powershell_download(url, destination)
+            powershell_download(url, destination, logger)
         }
         Ok(status) => Err(format!(
             "failed to download '{url}': wget exited with {status}"
         )),
         Err(error) if cfg!(target_os = "windows") => {
             logger.log(format!("failed to start wget: {error}; trying PowerShell"));
-            powershell_download(url, destination)
+            powershell_download(url, destination, logger)
         }
         Err(error) => Err(format!("failed to start curl or wget for '{url}': {error}")),
     }
@@ -73,7 +82,8 @@ pub(crate) fn extract_zip(
         powershell_literal(&archive.display().to_string()),
         powershell_literal(&target.display().to_string())
     );
-    let status = Command::new("powershell")
+    let mut powershell = Command::new("powershell");
+    powershell
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -81,7 +91,9 @@ pub(crate) fn extract_zip(
             "Bypass",
             "-Command",
         ])
-        .arg(command)
+        .arg(command);
+    logger.attach_command_output(&mut powershell);
+    let status = powershell
         .status()
         .map_err(|error| format!("failed to start PowerShell for {label}: {error}"))?;
     if status.success() {
@@ -91,12 +103,16 @@ pub(crate) fn extract_zip(
     }
 }
 
-pub(crate) fn extract_tar_xz(archive: &Path, target: &Path, label: &str) -> Result<(), String> {
-    let status = Command::new("tar")
-        .args(["-xJf"])
-        .arg(archive)
-        .arg("-C")
-        .arg(target)
+pub(crate) fn extract_tar_xz(
+    archive: &Path,
+    target: &Path,
+    label: &str,
+    logger: &Logger,
+) -> Result<(), String> {
+    let mut tar = Command::new("tar");
+    tar.args(["-xJf"]).arg(archive).arg("-C").arg(target);
+    logger.attach_command_output(&mut tar);
+    let status = tar
         .status()
         .map_err(|error| format!("failed to start tar for {label}: {error}"))?;
     if status.success() {
@@ -177,13 +193,14 @@ pub(crate) fn verify_sha256_with_sha256sum(path: &Path, expected: &str) -> Resul
     }
 }
 
-fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
+fn powershell_download(url: &str, destination: &Path, logger: &Logger) -> Result<(), String> {
     let command = format!(
         "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri {} -OutFile {}",
         powershell_literal(url),
         powershell_literal(&destination.display().to_string())
     );
-    let status = Command::new("powershell")
+    let mut powershell = Command::new("powershell");
+    powershell
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -191,7 +208,9 @@ fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
             "Bypass",
             "-Command",
         ])
-        .arg(command)
+        .arg(command);
+    logger.attach_command_output(&mut powershell);
+    let status = powershell
         .status()
         .map_err(|error| format!("failed to start PowerShell download for '{url}': {error}"))?;
     if status.success() {

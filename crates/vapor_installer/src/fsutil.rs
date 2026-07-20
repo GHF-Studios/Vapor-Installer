@@ -10,7 +10,7 @@ use std::{
     fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -195,6 +195,15 @@ impl Logger {
     pub(crate) fn log(&mut self, message: impl AsRef<str>) {
         let _ = writeln!(self.file, "[{}] {}", timestamp(), message.as_ref());
         let _ = self.file.flush();
+    }
+
+    pub(crate) fn attach_command_output(&self, command: &mut Command) {
+        if let Ok(stdout) = self.file.try_clone() {
+            command.stdout(Stdio::from(stdout));
+        }
+        if let Ok(stderr) = self.file.try_clone() {
+            command.stderr(Stdio::from(stderr));
+        }
     }
 }
 

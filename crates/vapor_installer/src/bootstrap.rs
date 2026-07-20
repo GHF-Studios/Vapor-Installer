@@ -223,11 +223,10 @@ fn bootstrap_steamcmd(app_root: &Path, logger: &mut Logger) -> Result<(), String
     }
     let archive = downloads_dir(app_root)?.join("steamcmd_linux.tar.gz");
     download(STEAMCMD_LINUX, &archive, logger)?;
-    let status = Command::new("tar")
-        .args(["-xzf"])
-        .arg(&archive)
-        .arg("-C")
-        .arg(&target)
+    let mut tar = Command::new("tar");
+    tar.args(["-xzf"]).arg(&archive).arg("-C").arg(&target);
+    logger.attach_command_output(&mut tar);
+    let status = tar
         .status()
         .map_err(|error| format!("failed to start tar for SteamCMD archive: {error}"))?;
     if status.success() {
