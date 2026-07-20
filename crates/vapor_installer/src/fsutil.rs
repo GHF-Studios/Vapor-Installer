@@ -9,13 +9,15 @@ use std::{
     fs,
     fs::{File, OpenOptions},
     io::Write,
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) fn ensure_contained(root: &Path, candidate: &Path) -> Result<(), String> {
-    if candidate.starts_with(root) {
+    let root = shell_safe_path(root.to_path_buf());
+    let candidate = shell_safe_path(candidate.to_path_buf());
+    if candidate.starts_with(&root) {
         Ok(())
     } else {
         Err(format!(
@@ -206,6 +208,7 @@ pub(crate) fn timestamp() -> String {
 fn copy_app_tree_entry(source: &Path, destination: &Path, item_root: &Path) -> Result<(), String> {
     let canonical = fs::canonicalize(source)
         .map_err(|error| format!("failed to resolve '{}': {error}", source.display()))?;
+    let canonical = shell_safe_path(canonical);
     ensure_contained(item_root, &canonical)?;
     let metadata = fs::metadata(&canonical)
         .map_err(|error| format!("failed to inspect '{}': {error}", canonical.display()))?;
@@ -237,4 +240,21 @@ fn copy_app_tree_entry(source: &Path, destination: &Path, item_root: &Path) -> R
         })?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{path}"));
+    }
+    if let Some(path) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(path);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    path
 }

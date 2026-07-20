@@ -68,6 +68,11 @@ pub(crate) fn extract_zip(
         archive.display(),
         target.display()
     ));
+    let command = format!(
+        "Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
+        powershell_literal(&archive.display().to_string()),
+        powershell_literal(&target.display().to_string())
+    );
     let status = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -75,10 +80,8 @@ pub(crate) fn extract_zip(
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
         ])
-        .arg(archive)
-        .arg(target)
+        .arg(command)
         .status()
         .map_err(|error| format!("failed to start PowerShell for {label}: {error}"))?;
     if status.success() {
@@ -107,6 +110,10 @@ pub(crate) fn verify_sha256_with_powershell(path: &Path, expected: &str) -> Resu
     if !cfg!(target_os = "windows") {
         return Ok(());
     }
+    let command = format!(
+        "(Get-FileHash -Algorithm SHA256 -LiteralPath {}).Hash",
+        powershell_literal(&path.display().to_string())
+    );
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -114,9 +121,8 @@ pub(crate) fn verify_sha256_with_powershell(path: &Path, expected: &str) -> Resu
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash",
         ])
-        .arg(path)
+        .arg(command)
         .output()
         .map_err(|error| {
             format!(
@@ -172,6 +178,11 @@ pub(crate) fn verify_sha256_with_sha256sum(path: &Path, expected: &str) -> Resul
 }
 
 fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
+    let command = format!(
+        "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri {} -OutFile {}",
+        powershell_literal(url),
+        powershell_literal(&destination.display().to_string())
+    );
     let status = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -179,10 +190,8 @@ fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri $args[0] -OutFile $args[1]",
         ])
-        .arg(url)
-        .arg(destination)
+        .arg(command)
         .status()
         .map_err(|error| format!("failed to start PowerShell download for '{url}': {error}"))?;
     if status.success() {
@@ -192,4 +201,8 @@ fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
             "failed to download '{url}': PowerShell exited with {status}"
         ))
     }
+}
+
+fn powershell_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
