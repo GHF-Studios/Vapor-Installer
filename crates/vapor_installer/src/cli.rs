@@ -10,7 +10,7 @@ use crate::{
 use std::{
     env,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 /// Run the installer using process arguments from the current environment.
@@ -356,7 +356,7 @@ fn print_player_status(status: &PlayerStatus) {
     if !status.ready() {
         println!(
             "  Next: vapor-installer install --app-root {}",
-            status.app_root().display()
+            display_command_argument(status.app_root())
         );
     }
 }
@@ -370,7 +370,7 @@ fn print_dev_env_status(status: &DevEnvStatus) {
     if !status.ready() {
         println!(
             "  Next: vapor-installer dev-env install --app-root {}",
-            status.app_root().display()
+            display_command_argument(status.app_root())
         );
     }
 }
@@ -450,4 +450,37 @@ fn readiness_label(value: bool) -> &'static str {
 
 fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
+}
+
+fn display_command_argument(path: &Path) -> String {
+    shell_quote(&path.display().to_string())
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    if value.is_empty()
+        || value.bytes().any(|byte| {
+            matches!(
+                byte,
+                b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')' | b'&' | b'|' | b'<' | b'>' | b'^'
+            )
+        })
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_quote(value: &str) -> String {
+    let safe = !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'@' | b'%' | b'+' | b'=' | b':' | b',' | b'.' | b'/' | b'-'));
+    if safe {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }

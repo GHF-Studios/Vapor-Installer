@@ -29,6 +29,7 @@ pub(crate) fn resolve_app_root(explicit: Option<&Path>) -> Result<PathBuf, Strin
     for candidate in candidates {
         match fs::canonicalize(&candidate) {
             Ok(path) if path.is_dir() => {
+                let path = shell_safe_path(path);
                 let marker = path.join(APP_MANIFEST);
                 if marker.is_file() && manifest_declares_root(&marker)? {
                     return Ok(path);
@@ -38,7 +39,10 @@ pub(crate) fn resolve_app_root(explicit: Option<&Path>) -> Result<PathBuf, Strin
                     candidate.display()
                 ));
             }
-            Ok(path) => rejected.push(format!("{} (not a directory)", path.display())),
+            Ok(path) => {
+                let path = shell_safe_path(path);
+                rejected.push(format!("{} (not a directory)", path.display()));
+            }
             Err(error) => rejected.push(format!("{} ({error})", candidate.display())),
         }
     }
@@ -96,4 +100,21 @@ fn manifest_declares_table(path: &Path, expected: &str) -> Result<bool, String> 
         };
         !table.starts_with('[') && table.trim() == expected
     }))
+}
+
+#[cfg(windows)]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{path}"));
+    }
+    if let Some(path) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(path);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    path
 }
