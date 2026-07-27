@@ -10,7 +10,6 @@
 //! tester machine, so the app-root launcher compiles the same shared tool
 //! implementation and dispatches to it directly.
 
-#[allow(dead_code, unused_variables)]
 #[path = "../../../../resources/vapor/tools/_shared/vapor_tools.rs"]
 mod vapor_tools;
 
