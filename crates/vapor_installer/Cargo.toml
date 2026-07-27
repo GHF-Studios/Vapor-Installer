@@ -7,6 +7,3 @@ readme = "../../README.md"
 [[bin]]
 name = "vapor-installer"
 path = "src/main.rs"
-
-[dependencies]
-vapor_core = { path = "../../../Vapor/crates/vapor_core" }

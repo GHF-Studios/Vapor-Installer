@@ -1,89 +1,47 @@
 # Vapor Installer
 
-Vapor Installer owns installation and uninstallation mechanics for the Steam app
-root. Vapor Shell remains the interactive product surface; installer operations
-stay encapsulated here.
+`vapor-installer` is now a compatibility shim.
 
-The app root is disposable. Installer-managed state is recreateable app-local
-tooling, cache, logs, receipts, and install metadata. Authoritative user
-progress or account data must live outside the Steam app root in OS-appropriate
-user-data locations.
-
-## User experience
-
-Run `vapor-installer` with no arguments to open the visual installer. The
-installer is the user-facing lifecycle surface for install, uninstall, and
-developer-mode upgrade/downgrade flows. Steam launch wrappers call only the
-narrow headless install command so ordinary launches do not ask testers to make
-setup decisions. The dedicated Steam Installer launch option should call the
-same wrapper with the `installer` argument, which opens this visual surface
-directly instead of running the quiet player-mode install first.
-
-## Headless command shape
+The actual setup, teardown, app-root, and toolchain operations live in the
+super-workspace script layer:
 
 ```text
-vapor-installer status [--app-root PATH]
-vapor-installer install [--app-root PATH] [--dry-run]
-vapor-installer uninstall [--app-root PATH] [--dry-run]
-vapor-installer dev-env status [--app-root PATH]
-vapor-installer dev-env install [--app-root PATH] [--dry-run]
-vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]
+tools/production/app_setup/
 ```
 
-`install` is the normal closed-alpha player-mode preparation path. It is safe to
-run repeatedly and prepares only basic functionality:
+This keeps DevOps behavior visible, scriptable, and easy to replace. The binary
+exists so Steam launch wrappers and older command habits still have a stable
+entrypoint. For shipped runtime use, the shim compiles the shared script
+implementation directly so first-run setup does not require Rust or
+`rust-script` to already be installed.
 
-- app-local SteamCMD under `tools/steamcmd`;
-- app-local disposable state, log, diagnostics, and content-cache directories.
+## Command mapping
 
-`dev-env install` is the explicit developer-mode upgrade path. It first ensures
-player-mode readiness, then installs the Rust/Cargo and cross-build toolchain
-needed for building Vapor projects. Normal testers should not need it.
+```text
+vapor-installer status
+  -> rust-script --force tools/production/app_setup/status.rs
 
-`dev-env uninstall` is the developer-mode downgrade path. It removes Rust/Cargo
-and cross-build tooling while keeping player mode installed.
+vapor-installer install [--app-root PATH]
+  -> rust-script --force tools/production/app_setup/setup_player.rs [--app-root PATH]
 
-## Uninstall model
+vapor-installer uninstall [--app-root PATH]
+  -> rust-script --force tools/production/app_setup/teardown_player.rs [--app-root PATH]
 
-Uninstall is intentionally split between installer-owned state and Steam-owned
-files:
+vapor-installer dev-env status
+  -> rust-script --force tools/production/app_setup/status.rs
 
-1. Optional: downgrade developer mode back to player mode without uninstalling
-   the app:
+vapor-installer dev-env install [--app-root PATH]
+  -> rust-script --force tools/production/app_setup/setup_development.rs [--app-root PATH]
 
-   ```text
-   vapor-installer dev-env uninstall --app-root /path/to/steam/app
-   ```
+vapor-installer dev-env uninstall [--app-root PATH]
+  -> rust-script --force tools/production/app_setup/teardown_development.rs [--app-root PATH]
+```
 
-2. Remove every installer-managed mutable app-root path:
+`post-install` and `pre-uninstall` are also delegated to the matching lifecycle
+anchor scripts.
 
-   ```text
-   vapor-installer uninstall --app-root /path/to/steam/app
-   ```
+## Runtime shape
 
-   This removes Rust/Cargo and cross-build tooling if present, obsolete
-   app-local Git/registry state if present, SteamCMD, downloads/extracts, `.vapor/state`,
-   `.vapor/diagnostics`, `.vapor/logs`, generated `content/` state, and
-   `output/`. It does not remove depot-owned shell binaries, docs, examples,
-   launch wrappers, scripts, or `App.vapor.toml`.
-
-3. Use Steam's uninstall feature to remove the depot-owned application files,
-   including Vapor Shell, docs, launch wrappers, and `vapor-installer` itself.
-
-No uninstall command recurses outside the resolved `[root]` app root.
-
-## Source layout
-
-The crate is split by installer responsibility:
-
-- `cli`: command-line parser and visual TUI adapter.
-- `model`: public status/options/report value types.
-- `app_root`: app-root discovery and `[root]` manifest checks.
-- `bootstrap`: internal player-mode install/uninstall/status implementation.
-- `dev_env`: explicit Rust/Cargo and cross-build development tooling.
-- `acquire`: download, archive extraction, and checksum helpers.
-- `fsutil`: app-root-contained filesystem mutation helpers.
-- `paths`: shared app-local path conventions.
-
-`src/main.rs` is intentionally only the process boundary; installer behavior
-lives in the library modules.
+For local development, the direct script command is preferred. For launchers and
+Steam entrypoints, `vapor-installer` remains a small stable adapter that calls
+the same `tools/_shared/vapor_tools.rs` implementation in-process.
