@@ -1,40 +1,45 @@
 # Vapor Installer
 
-`vapor-installer` is now a compatibility shim.
+`vapor-installer` is the precompiled app-root maintenance and workflow shim.
 
-The actual setup, teardown, app-root, and toolchain operations live in the
-super-workspace script layer:
+The setup, teardown, app-root, toolchain, and RustRover workflow-launch
+operations use the shared app-root tool implementation:
 
 ```text
-tools/production/app_setup/
+resources/vapor/tools/
 ```
 
-This keeps DevOps behavior visible, scriptable, and easy to replace. The binary
-exists so Steam launch wrappers and older command habits still have a stable
-entrypoint. For shipped runtime use, the shim compiles the shared script
-implementation directly so first-run setup does not require Rust or
+The source-visible Rust scripts remain useful development affordances, but the
+shipped binary compiles the same implementation directly. First-run setup,
+maintenance, and RustRover workflow launch therefore do not require Rust or
 `rust-script` to already be installed.
 
 ## Command mapping
 
 ```text
 vapor-installer status
-  -> rust-script --force tools/production/app_setup/status.rs
+  -> in-process app-root status
 
 vapor-installer install [--app-root PATH]
-  -> rust-script --force tools/production/app_setup/setup_player.rs [--app-root PATH]
+  -> in-process player setup
 
 vapor-installer uninstall [--app-root PATH]
-  -> rust-script --force tools/production/app_setup/teardown_player.rs [--app-root PATH]
+  -> in-process player teardown
 
 vapor-installer dev-env status
-  -> rust-script --force tools/production/app_setup/status.rs
+  -> in-process app-root status
 
 vapor-installer dev-env install [--app-root PATH]
-  -> rust-script --force tools/production/app_setup/setup_development.rs [--app-root PATH]
+  -> in-process development provider setup
 
 vapor-installer dev-env uninstall [--app-root PATH]
-  -> rust-script --force tools/production/app_setup/teardown_development.rs [--app-root PATH]
+  -> in-process development provider teardown
+
+vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]
+  -> in-process RustRover project patch
+
+vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root PATH]
+  -> in-process RustRover workflow launcher
 ```
 
 `post-install` and `pre-uninstall` are also delegated to the matching lifecycle
@@ -42,6 +47,6 @@ anchor scripts.
 
 ## Runtime shape
 
-For local development, the direct script command is preferred. For launchers and
-Steam entrypoints, `vapor-installer` remains a small stable adapter that calls
-the same `tools/_shared/vapor_tools.rs` implementation in-process.
+For normal installed-app use, `vapor-installer` is the stable precompiled
+adapter. For local development, the Rust scripts can still expose the same
+implementation directly when Rust is already available.

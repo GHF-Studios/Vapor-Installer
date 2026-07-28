@@ -1,8 +1,8 @@
-//! Vapor Installer compatibility shim.
+//! Precompiled Vapor app-root maintenance and workflow shim.
 //!
-//! DevOps/setup behavior lives in the super-workspace `tools/` scripts. This
-//! crate stays intentionally small so Steam launch wrappers and old command
-//! muscle memory can delegate into that script layer.
+//! Setup, maintenance, and IDE workflow launch behavior delegates into the
+//! shared app-root tool implementation in-process. That keeps bootstrap paths
+//! usable before Rust, Cargo, Git, or SteamCMD providers are installed.
 
 pub mod cli;
 mod script_bridge;

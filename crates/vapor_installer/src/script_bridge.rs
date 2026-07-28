@@ -1,13 +1,7 @@
 //! Small in-process bridge from `vapor-installer` to the app-root tool layer.
 //!
-//! Direct human usage stays script-first:
-//!
-//! ```text
-//! rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs
-//! ```
-//!
-//! The shipped binary cannot assume `rust-script` or Rust already exist on a
-//! tester machine, so the app-root launcher compiles the same shared tool
+//! The shipped binary cannot assume Rust, Cargo, Git, or SteamCMD already exist
+//! on a tester machine, so the app-root launcher compiles the shared tool
 //! implementation and dispatches to it directly.
 
 #[path = "../../../../resources/vapor/tools/_shared/vapor_tools.rs"]
@@ -27,19 +21,15 @@ pub(crate) enum ToolScript {
 }
 
 impl ToolScript {
-    fn direct_script_path(self) -> &'static str {
+    fn label(self) -> &'static str {
         match self {
-            Self::Status => "resources/vapor/tools/production/app_setup/status.rs",
-            Self::SetupPlayer => "resources/vapor/tools/production/app_setup/setup_player.rs",
-            Self::TeardownPlayer => "resources/vapor/tools/production/app_setup/teardown_player.rs",
-            Self::SetupDevelopment => {
-                "resources/vapor/tools/production/app_setup/setup_development.rs"
-            }
-            Self::TeardownDevelopment => {
-                "resources/vapor/tools/production/app_setup/teardown_development.rs"
-            }
-            Self::PostInstall => "resources/vapor/tools/production/app_setup/post_install.rs",
-            Self::PreUninstall => "resources/vapor/tools/production/app_setup/pre_uninstall.rs",
+            Self::Status => "app-root status",
+            Self::SetupPlayer => "player setup",
+            Self::TeardownPlayer => "player teardown",
+            Self::SetupDevelopment => "development setup",
+            Self::TeardownDevelopment => "development teardown",
+            Self::PostInstall => "post-install anchor",
+            Self::PreUninstall => "pre-uninstall cleanup",
         }
     }
 }
@@ -61,17 +51,40 @@ pub(crate) fn run(
     }
 }
 
+pub(crate) fn run_ide_workflow() -> Result<(), String> {
+    vapor_tools::ide_run_main()
+}
+
+pub(crate) fn patch_rustrover() -> Result<(), String> {
+    vapor_tools::patch_rustrover_main()
+}
+
+pub(crate) fn create_superworkspace(root: &Path, app_root: Option<&Path>) -> Result<(), String> {
+    vapor_tools::create_superworkspace_at(root, app_root)
+}
+
+pub(crate) fn source_status(
+    super_workspace: Option<&Path>,
+    app_root: Option<&Path>,
+) -> Result<(), String> {
+    vapor_tools::source_status_at(super_workspace, app_root)
+}
+
+pub(crate) fn clone_source(
+    super_workspace: Option<&Path>,
+    app_root: Option<&Path>,
+    source_name: &str,
+) -> Result<(), String> {
+    vapor_tools::clone_source_into_superworkspace(super_workspace, app_root, source_name)
+}
+
 pub(crate) fn print_dry_run(script: ToolScript, app_root: Option<&Path>, extra_args: &[String]) {
-    let mut parts = vec![
-        "rust-script".to_owned(),
-        script.direct_script_path().to_owned(),
-    ];
+    let mut parts = vec![script.label().to_owned()];
     if let Some(app_root) = app_root {
-        parts.push("--app-root".to_owned());
-        parts.push(shell_quote_path(app_root));
+        parts.push(format!("app-root={}", shell_quote_path(app_root)));
     }
     parts.extend(extra_args.iter().map(|arg| shell_quote(arg)));
-    println!("dry-run: would delegate to script");
+    println!("dry-run: would run precompiled Vapor maintenance operation");
     println!("  {}", parts.join(" "));
 }
 
