@@ -1,7 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/vapor_installer"]
+members = ["crates/vapor_installer", "crates/vapor_installer_ui"]
 
 [workspace.package]
 version = "0.5.0"
 edition = "2024"
+
+[workspace.dependencies]
+eframe = "0.36.2"

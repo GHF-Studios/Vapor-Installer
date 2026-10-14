@@ -6,3 +6,8 @@ organization = "ghf-studios"
 version = "0.5.0"
 repository = "https://github.com/GHF-Studios/Vapor-Installer"
 binaries = ["vapor-installer"]
+
+[toolchain]
+channel = "stable"
+version = "1.97.0"
+date = "2026-07-09"

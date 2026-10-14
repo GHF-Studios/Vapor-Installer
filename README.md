@@ -1,6 +1,9 @@
 # Vapor Installer
 
 `vapor-installer` is the precompiled app-root maintenance and workflow shim.
+`vapor_installer_ui` is the Installer product module hosted by Vapor-GUI; its
+normal status, install, repair, and uninstall actions call Vapor's shared
+operations directly.
 
 The setup, teardown, app-root, toolchain, and RustRover workflow-launch
 operations use the shared app-root tool implementation:
