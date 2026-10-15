@@ -34,7 +34,11 @@ impl InstallerApp {
                             status.installation_root.display(),
                             status.is_healthy(),
                             status.toolchain_version,
-                            if status.toolchain_installed { "installed" } else { "missing" },
+                            if status.toolchain_installed {
+                                "installed"
+                            } else {
+                                "missing"
+                            },
                             status.current_projects,
                         )
                     })
@@ -94,24 +98,40 @@ impl InstallerOperation {
 
 impl eframe::App for InstallerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if let Some(result) = self.receiver.as_ref().and_then(|receiver| receiver.try_recv().ok()) {
+        if let Some(result) = self
+            .receiver
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok())
+        {
             self.receiver = None;
             self.status = result.unwrap_or_else(|error| error);
         }
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Vapor Installer");
             ui.label("Manage the installed Vapor app root.");
             ui.horizontal(|ui| {
-                if ui.add_enabled(self.receiver.is_none(), egui::Button::new("Check status")).clicked() {
+                if ui
+                    .add_enabled(self.receiver.is_none(), egui::Button::new("Check status"))
+                    .clicked()
+                {
                     self.run_installer(InstallerOperation::Status);
                 }
-                if ui.add_enabled(self.receiver.is_none(), egui::Button::new("Install")).clicked() {
+                if ui
+                    .add_enabled(self.receiver.is_none(), egui::Button::new("Install"))
+                    .clicked()
+                {
                     self.run_installer(InstallerOperation::Install);
                 }
-                if ui.add_enabled(self.receiver.is_none(), egui::Button::new("Uninstall")).clicked() {
+                if ui
+                    .add_enabled(self.receiver.is_none(), egui::Button::new("Uninstall"))
+                    .clicked()
+                {
                     self.confirm_uninstall = true;
                 }
-                if ui.add_enabled(self.receiver.is_none(), egui::Button::new("Repair")).clicked() {
+                if ui
+                    .add_enabled(self.receiver.is_none(), egui::Button::new("Repair"))
+                    .clicked()
+                {
                     self.run_installer(InstallerOperation::Repair);
                 }
             });
@@ -137,7 +157,8 @@ impl eframe::App for InstallerApp {
                 });
         }
         if self.receiver.is_some() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
 }
