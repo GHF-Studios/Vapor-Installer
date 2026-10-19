@@ -1,10 +1,7 @@
 //! Precompiled command-line front-end for Vapor app-root maintenance and workflows.
 
 use crate::script_bridge::{self, ToolScript};
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::{env, path::PathBuf};
 
 #[derive(Debug, Default)]
 struct ToolOptions {
@@ -272,9 +269,4 @@ fn reject_positionals(positionals: &[String], command: &str) -> Result<(), Strin
 
 fn print_help() {
     println!("{}", help_text());
-}
-
-#[allow(dead_code)]
-fn display_command_argument(path: &Path) -> String {
-    script_bridge::shell_quote(&path.display().to_string())
 }
