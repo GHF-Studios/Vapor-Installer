@@ -2,7 +2,7 @@ use eframe::egui;
 use std::{path::PathBuf, sync::mpsc, thread};
 
 pub struct InstallerApp {
-    app_root: PathBuf,
+    installation: Option<vapor_core::VaporInstallation>,
     status: String,
     receiver: Option<mpsc::Receiver<Result<String, String>>>,
     confirm_uninstall: bool,
@@ -10,24 +10,40 @@ pub struct InstallerApp {
 
 impl InstallerApp {
     pub fn new(app_root: Option<PathBuf>) -> Self {
+        let (installation, status) = match app_root {
+            Some(root) => match vapor_core::VaporInstallation::from_explicit_root(root) {
+                Ok(installation) => (
+                    Some(installation),
+                    "Ready to inspect or maintain this Vapor installation.".to_owned(),
+                ),
+                Err(error) => (None, error.to_string()),
+            },
+            None => match vapor_core::VaporInstallation::discover() {
+                Ok(installation) => (
+                    Some(installation),
+                    "Ready to inspect or maintain this Vapor installation.".to_owned(),
+                ),
+                Err(error) => (None, error.to_string()),
+            },
+        };
         Self {
-            app_root: app_root
-                .or_else(|| std::env::var_os("VAPOR_HOME").map(PathBuf::from))
-                .or_else(|| std::env::current_dir().ok())
-                .unwrap_or_default(),
-            status: "Ready to inspect or maintain this Vapor installation.".to_owned(),
+            status,
+            installation,
             receiver: None,
             confirm_uninstall: false,
         }
     }
 
     fn run_installer(&mut self, operation: InstallerOperation) {
+        let Some(installation) = self.installation.clone() else {
+            return;
+        };
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = format!("Running installer {}…", operation.label());
         thread::spawn(move || {
             let result = match operation {
-                InstallerOperation::Status => vapor_core::diagnose_managed_state()
+                InstallerOperation::Status => vapor_core::diagnose_managed_state_for(&installation)
                     .map(|status| {
                         format!(
                             "Installation: {}\nHealthy: {}\nToolchain: {} ({})\nProjects: {}",
@@ -43,7 +59,7 @@ impl InstallerApp {
                         )
                     })
                     .map_err(|error| error.to_string()),
-                InstallerOperation::Install => vapor_core::install_installation()
+                InstallerOperation::Install => vapor_core::install_installation_for(&installation)
                     .map(|report| {
                         format!(
                             "Installed Vapor at {}\nSuperworkspace: {}",
@@ -52,7 +68,7 @@ impl InstallerApp {
                         )
                     })
                     .map_err(|error| error.to_string()),
-                InstallerOperation::Repair => vapor_core::repair_managed_state()
+                InstallerOperation::Repair => vapor_core::repair_managed_state_for(&installation)
                     .map(|report| {
                         format!(
                             "Repair complete. Installation: {}\nHealthy: {}",
@@ -61,7 +77,8 @@ impl InstallerApp {
                         )
                     })
                     .map_err(|error| error.to_string()),
-                InstallerOperation::Uninstall => vapor_core::uninstall_installation(
+                InstallerOperation::Uninstall => vapor_core::uninstall_installation_for(
+                    &installation,
                     vapor_core::UninstallOptions::default(),
                 )
                 .map(|report| {
@@ -111,32 +128,46 @@ impl eframe::App for InstallerApp {
             ui.label("Manage the installed Vapor app root.");
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(self.receiver.is_none(), egui::Button::new("Check status"))
+                    .add_enabled(
+                        self.receiver.is_none() && self.installation.is_some(),
+                        egui::Button::new("Check status"),
+                    )
                     .clicked()
                 {
                     self.run_installer(InstallerOperation::Status);
                 }
                 if ui
-                    .add_enabled(self.receiver.is_none(), egui::Button::new("Install"))
+                    .add_enabled(
+                        self.receiver.is_none() && self.installation.is_some(),
+                        egui::Button::new("Install"),
+                    )
                     .clicked()
                 {
                     self.run_installer(InstallerOperation::Install);
                 }
                 if ui
-                    .add_enabled(self.receiver.is_none(), egui::Button::new("Uninstall"))
+                    .add_enabled(
+                        self.receiver.is_none() && self.installation.is_some(),
+                        egui::Button::new("Uninstall"),
+                    )
                     .clicked()
                 {
                     self.confirm_uninstall = true;
                 }
                 if ui
-                    .add_enabled(self.receiver.is_none(), egui::Button::new("Repair"))
+                    .add_enabled(
+                        self.receiver.is_none() && self.installation.is_some(),
+                        egui::Button::new("Repair"),
+                    )
                     .clicked()
                 {
                     self.run_installer(InstallerOperation::Repair);
                 }
             });
             ui.separator();
-            ui.label(format!("App root: {}", self.app_root.display()));
+            if let Some(installation) = &self.installation {
+                ui.label(format!("App root: {}", installation.root.display()));
+            }
             ui.label(&self.status);
         });
         if self.confirm_uninstall {
@@ -160,5 +191,26 @@ impl eframe::App for InstallerApp {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InstallerApp;
+
+    #[test]
+    fn installer_keeps_an_explicit_root_as_its_operation_context() {
+        let selected =
+            std::env::temp_dir().join(format!("vapor-installer-ui-root-{}", std::process::id()));
+        std::fs::create_dir_all(&selected).expect("create app root");
+        std::fs::write(selected.join("App.vapor.toml"), "[root]\n").expect("write app manifest");
+
+        let app = InstallerApp::new(Some(selected.clone()));
+
+        assert_eq!(
+            app.installation.expect("explicit installation").root,
+            selected
+        );
+        std::fs::remove_dir_all(selected).expect("remove test app root");
     }
 }
