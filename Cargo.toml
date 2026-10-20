@@ -6,5 +6,12 @@ members = ["crates/vapor_installer", "crates/vapor_installer_ui"]
 version = "0.5.0"
 edition = "2024"
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.full-debug]
+inherits = "dev"
+debug = true
+
 [workspace.dependencies]
 eframe = "0.36.2"
