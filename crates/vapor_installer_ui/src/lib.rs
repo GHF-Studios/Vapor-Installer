@@ -13,11 +13,20 @@ use vapor_client_protocol::{
 
 pub struct InstallerApp {
     installation: Option<vapor_core::VaporInstallation>,
+    page: InstallerPage,
     status: String,
     receiver: Option<mpsc::Receiver<Result<InstallerTaskResult, String>>>,
     confirm_uninstall: bool,
     role: InstallationRoleSnapshot,
     selected_role: vapor_core::VaporRole,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum InstallerPage {
+    #[default]
+    Overview,
+    Role,
+    Installation,
 }
 
 struct InstallerTaskResult {
@@ -46,6 +55,7 @@ impl InstallerApp {
         let mut app = Self {
             status,
             installation,
+            page: InstallerPage::Overview,
             receiver: None,
             confirm_uninstall: false,
             role: InstallationRoleSnapshot::default(),
@@ -485,25 +495,63 @@ impl eframe::App for InstallerApp {
                 Err(error) => self.status = error,
             }
         }
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::Panel::top("installer-navigation").show(ui, |ui| {
+            ui.horizontal(|ui| {
                 ui.heading("Vapor Installer");
-                ui.label("Set up this device for playing, composing, or developing with Vapor.");
-                ui.add_space(12.0);
-
-                if ui.available_width() >= 820.0 {
-                    ui.columns(2, |columns| {
-                        self.draw_installation_panel(&mut columns[0]);
-                        self.draw_role_panel(&mut columns[1]);
-                    });
-                } else {
+                ui.separator();
+                for (page, label) in [
+                    (InstallerPage::Overview, "Overview"),
+                    (InstallerPage::Role, "Your role"),
+                    (InstallerPage::Installation, "Installation"),
+                ] {
+                    if ui.selectable_label(self.page == page, label).clicked() {
+                        self.page = page;
+                    }
+                }
+            });
+        });
+        egui::Panel::bottom("installer-status").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(&self.status);
+                if self.receiver.is_some() {
+                    ui.spinner();
+                }
+            });
+        });
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| match self.page {
+                InstallerPage::Overview => {
+                    ui.add_space(8.0);
+                    ui.heading("Set up this device for Vapor");
+                    ui.label("Choose how you use Vapor. You can change your role at any time.");
+                    ui.add_space(18.0);
+                    if ui.available_width() >= 820.0 {
+                        ui.columns(2, |columns| {
+                            self.draw_role_panel(&mut columns[0]);
+                            self.draw_installation_panel(&mut columns[1]);
+                        });
+                    } else {
+                        self.draw_role_panel(ui);
+                        ui.add_space(12.0);
+                        self.draw_installation_panel(ui);
+                    }
+                }
+                InstallerPage::Role => {
+                    ui.add_space(8.0);
+                    ui.heading("Choose your role");
+                    ui.label("Vapor prepares only the tools needed for the role you select.");
+                    ui.add_space(12.0);
                     self.draw_role_panel(ui);
-                    ui.add_space(10.0);
+                }
+                InstallerPage::Installation => {
+                    ui.add_space(8.0);
+                    ui.heading("Installation and recovery");
+                    ui.label(
+                        "Repair the app if it is incomplete, or inspect advanced local details.",
+                    );
+                    ui.add_space(12.0);
                     self.draw_installation_panel(ui);
                 }
-
-                ui.add_space(10.0);
-                ui.label(&self.status);
             });
         });
         if self.confirm_uninstall {
