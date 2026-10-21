@@ -6,3 +6,10 @@
 
 pub mod cli;
 mod script_bridge;
+
+use std::path::Path;
+
+/// Install app-local player prerequisites for the selected Steam installation.
+pub fn setup_player_for_app_root(app_root: &Path) -> Result<(), String> {
+    script_bridge::setup_player_for(app_root)
+}

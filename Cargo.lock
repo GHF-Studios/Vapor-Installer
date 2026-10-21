@@ -3929,6 +3929,7 @@ name = "vapor_client_protocol"
 version = "0.5.0"
 dependencies = [
  "serde",
+ "serde_json",
  "vapor_client_domain",
  "vapor_telemetry",
 ]
@@ -3970,6 +3971,7 @@ dependencies = [
  "vapor_client",
  "vapor_client_protocol",
  "vapor_core",
+ "vapor_installer",
 ]
 
 [[package]]

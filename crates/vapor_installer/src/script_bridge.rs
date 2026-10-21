@@ -59,6 +59,10 @@ pub(crate) fn patch_rustrover() -> Result<(), String> {
     vapor_tools::patch_rustrover_main()
 }
 
+pub(crate) fn setup_player_for(app_root: &Path) -> Result<(), String> {
+    vapor_tools::setup_player_for(app_root)
+}
+
 pub(crate) fn create_superworkspace(root: &Path, app_root: Option<&Path>) -> Result<(), String> {
     vapor_tools::create_superworkspace_at(root, app_root)
 }
