@@ -119,9 +119,9 @@ impl InstallerApp {
     }
 
     fn run_role_transition(&mut self, target: vapor_core::VaporRole, promote: bool) {
-        let Some(installation) = self.installation.clone() else {
+        if self.installation.is_none() {
             return;
-        };
+        }
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = format!(
@@ -138,24 +138,20 @@ impl InstallerApp {
                     target: target.as_str().to_owned(),
                 }
             };
-            let result = run_service_action(&installation, action, true);
+            let result = run_service_action(action, true);
             let _ = sender.send(result);
         });
     }
 
     fn refresh_role(&mut self) {
-        let Some(installation) = self.installation.clone() else {
+        if self.installation.is_none() {
             return;
-        };
+        }
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = "Checking installation capabilities…".to_owned();
         thread::spawn(move || {
-            let result = run_service_action(
-                &installation,
-                DeveloperAction::RefreshInstallationRole,
-                false,
-            );
+            let result = run_service_action(DeveloperAction::RefreshInstallationRole, false);
             let _ = sender.send(result);
         });
     }
@@ -317,15 +313,15 @@ fn role_description(role: vapor_core::VaporRole) -> &'static str {
 }
 
 fn run_service_action(
-    installation: &vapor_core::VaporInstallation,
     action: DeveloperAction,
     operation: bool,
 ) -> Result<InstallerTaskResult, String> {
-    let gui_executable = installation
-        .root
-        .join("bin")
-        .join(format!("vapor-gui{}", std::env::consts::EXE_SUFFIX));
-    let service_path = service_sibling_path(&gui_executable);
+    // Installer is launched from the target-specific app directory
+    // (`bin/<target>`). Resolve the service beside the executable that is
+    // actually running instead of assuming a flat `<root>/bin` layout.
+    let gui_executable = std::env::current_exe()
+        .map_err(|error| format!("could not locate the running Vapor Installer: {error}"))?;
+    let service_path = resolve_service_path(&gui_executable)?;
     let mut client = Client::connect_or_start(
         &service_path,
         ClientHostConfig {
@@ -389,6 +385,17 @@ fn run_service_action(
         return Ok(task_result(&response));
     }
     Ok(task_result(&response))
+}
+
+fn resolve_service_path(application_executable: &std::path::Path) -> Result<PathBuf, String> {
+    let service_path = service_sibling_path(application_executable);
+    if !service_path.is_file() {
+        return Err(format!(
+            "Vapor Client service is missing beside the running app: {}. Repair or locally deploy Vapor Client.",
+            service_path.display()
+        ));
+    }
+    Ok(service_path)
 }
 
 fn task_result(response: &ClientResponse) -> InstallerTaskResult {
@@ -525,7 +532,7 @@ impl eframe::App for InstallerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallerApp, sync_role_selection};
+    use super::{InstallerApp, resolve_service_path, sync_role_selection};
     use vapor_client_protocol::InstallationRoleSnapshot;
 
     #[test]
@@ -555,5 +562,42 @@ mod tests {
         sync_role_selection(&mut selected, &installed);
 
         assert_eq!(selected, vapor_core::VaporRole::EcosystemDeveloper);
+    }
+
+    #[test]
+    fn service_is_resolved_beside_the_running_target_specific_app() {
+        let root = std::env::temp_dir().join(format!(
+            "vapor-installer-service-path-{}",
+            std::process::id()
+        ));
+        let target_directory = root.join("bin").join("test-target");
+        std::fs::create_dir_all(&target_directory).expect("create target-specific app directory");
+        let application =
+            target_directory.join(format!("vapor-gui{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&application, b"app").expect("write app placeholder");
+        let service_name = if cfg!(windows) {
+            "vapor-client-service.exe"
+        } else {
+            "vapor-client-service"
+        };
+        let service = target_directory.join(service_name);
+        std::fs::write(&service, b"service").expect("write service placeholder");
+
+        assert_eq!(resolve_service_path(&application).unwrap(), service);
+
+        std::fs::remove_dir_all(root).expect("remove temporary app directory");
+    }
+
+    #[test]
+    fn missing_service_error_reports_the_expected_target_directory() {
+        let application = std::env::temp_dir()
+            .join("vapor-installer-missing-service")
+            .join("bin")
+            .join("test-target")
+            .join(format!("vapor-gui{}", std::env::consts::EXE_SUFFIX));
+        let error = resolve_service_path(&application).unwrap_err();
+        assert!(error.contains("Vapor Client service is missing beside the running app"));
+        assert!(error.contains("bin"));
+        assert!(error.contains("test-target"));
     }
 }
