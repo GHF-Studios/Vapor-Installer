@@ -493,6 +493,7 @@ fn run_service_action(
     let gui_executable = std::env::current_exe()
         .map_err(|error| format!("could not locate the running Vapor Installer: {error}"))?;
     let service_path = resolve_service_path(&gui_executable)?;
+    let action_id = ClientAction::Developer(action.clone()).id().to_owned();
     let mut client = Client::connect_or_start(
         &service_path,
         ClientHostConfig {
@@ -516,8 +517,18 @@ fn run_service_action(
     if operation {
         let operation_id = response
             .snapshot
-            .active_operation
-            .map(|active| active.id)
+            .active_operations
+            .iter()
+            .find(|active| active.action == action_id)
+            .map(|active| active.id.clone())
+            .or_else(|| {
+                response
+                    .snapshot
+                    .active_operation
+                    .as_ref()
+                    .filter(|active| active.action == action_id)
+                    .map(|active| active.id.clone())
+            })
             .ok_or_else(|| {
                 "The service accepted the role change without an operation.".to_owned()
             })?;
