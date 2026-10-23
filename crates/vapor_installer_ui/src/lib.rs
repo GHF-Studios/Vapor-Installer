@@ -2,7 +2,7 @@ use eframe::egui;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::mpsc,
     thread,
@@ -158,22 +158,31 @@ impl InstallerApp {
             if promote { "Preparing" } else { "Changing" }
         );
         thread::spawn(move || {
-            if promote
-                && let Err(error) = vapor_installer::setup_player_for_app_root(&installation.root)
-            {
-                let _ = sender.send(Err(error));
-                return;
-            }
-            let action = if promote {
-                DeveloperAction::PromoteInstallationRole {
-                    target: target.as_str().to_owned(),
+            let result = (|| {
+                if promote {
+                    vapor_core::install_installation_for(&installation)
+                        .map_err(|error| error.to_string())?;
+                    if !player_setup_ready_at(&installation.root) {
+                        vapor_installer::setup_player_for_app_root(&installation.root)?;
+                    }
                 }
-            } else {
-                DeveloperAction::DemoteInstallationRole {
-                    target: target.as_str().to_owned(),
+                let action = if promote {
+                    DeveloperAction::PromoteInstallationRole {
+                        target: target.as_str().to_owned(),
+                    }
+                } else {
+                    DeveloperAction::DemoteInstallationRole {
+                        target: target.as_str().to_owned(),
+                    }
+                };
+                let mut result = run_service_action(action, true)?;
+                if promote {
+                    result.message.push_str(
+                        "\nVapor commands are registered on your user PATH. Open a new terminal to use them.",
+                    );
                 }
-            };
-            let result = run_service_action(action, true);
+                Ok(result)
+            })();
             let _ = sender.send(result);
         });
     }
@@ -192,8 +201,10 @@ impl InstallerApp {
         self.receiver = Some(receiver);
         self.status = format!("Setting up this installation for {target}…");
         thread::spawn(move || {
-            let result =
-                vapor_installer::setup_player_for_app_root(&installation.root).and_then(|()| {
+            let result = vapor_core::install_installation_for(&installation)
+                .map_err(|error| error.to_string())
+                .and_then(|_| vapor_installer::setup_player_for_app_root(&installation.root))
+                .and_then(|()| {
                     if target > current {
                         run_service_action(
                             DeveloperAction::PromoteInstallationRole {
@@ -204,6 +215,12 @@ impl InstallerApp {
                     } else {
                         run_service_action(DeveloperAction::RefreshInstallationRole, false)
                     }
+                })
+                .map(|mut result| {
+                    result.message.push_str(
+                        "\nVapor commands are registered on your user PATH. Open a new terminal to use them.",
+                    );
+                    result
                 });
             let _ = sender.send(result);
         });
@@ -211,12 +228,7 @@ impl InstallerApp {
 
     fn player_setup_ready(&self) -> bool {
         self.installation.as_ref().is_some_and(|installation| {
-            let receipt = installation.root.join(".vapor/state/installer/player.toml");
-            std::fs::read_to_string(receipt).ok().is_some_and(|source| {
-                source
-                    .lines()
-                    .any(|line| line.trim() == "state = \"ready\"")
-            })
+            player_setup_ready_at(&installation.root)
         })
     }
 
@@ -388,8 +400,14 @@ impl InstallerApp {
                 "Promote this installation when you want Vapor to prepare more tools for you.",
             );
             ui.add_space(8.0);
-            if let Some(error) = &self.role.error {
-                ui.colored_label(egui::Color32::LIGHT_RED, error);
+            let Some(current) = parsed_installation_role(&self.role) else {
+                ui.colored_label(
+                    egui::Color32::LIGHT_RED,
+                    self.role
+                        .error
+                        .as_deref()
+                        .unwrap_or("Vapor could not read this installation's role."),
+                );
                 if ui
                     .add_enabled(self.receiver.is_none(), egui::Button::new("Try again"))
                     .clicked()
@@ -397,13 +415,14 @@ impl InstallerApp {
                     self.refresh_role();
                 }
                 return;
-            }
+            };
 
-            let current = self
-                .role
-                .role
-                .parse::<vapor_core::VaporRole>()
-                .unwrap_or(vapor_core::VaporRole::Player);
+            if let Some(error) = &self.role.error {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!("Role is {current}; developer-tool readiness is unavailable: {error}"),
+                );
+            }
             ui.strong(format!("Current role: {current}"));
             ui.add_enabled_ui(self.receiver.is_none(), |ui| {
                 egui::ComboBox::from_id_salt("installer-role-target")
@@ -464,6 +483,21 @@ impl InstallerApp {
             }
         });
     }
+}
+
+fn player_setup_ready_at(app_root: &Path) -> bool {
+    let receipt = app_root.join(".vapor/state/installer/player.toml");
+    std::fs::read_to_string(receipt).ok().is_some_and(|source| {
+        source
+            .lines()
+            .any(|line| line.trim() == "state = \"ready\"")
+    })
+}
+
+fn parsed_installation_role(
+    snapshot: &InstallationRoleSnapshot,
+) -> Option<vapor_core::VaporRole> {
+    snapshot.role.parse().ok()
 }
 
 fn role_description(role: vapor_core::VaporRole) -> &'static str {
@@ -752,7 +786,10 @@ impl eframe::App for InstallerApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallerApp, resolve_service_path, sync_role_selection};
+    use super::{
+        InstallerApp, parsed_installation_role, player_setup_ready_at, resolve_service_path,
+        sync_role_selection,
+    };
     use vapor_client_protocol::InstallationRoleSnapshot;
 
     #[test]
@@ -799,6 +836,27 @@ mod tests {
     }
 
     #[test]
+    fn readiness_failure_does_not_hide_role_promotion_choices() {
+        let snapshot = InstallationRoleSnapshot {
+            role: "player".to_owned(),
+            error: Some("toolchain metadata is unavailable".to_owned()),
+            ..Default::default()
+        };
+
+        assert_eq!(parsed_installation_role(&snapshot), Some(vapor_core::VaporRole::Player));
+    }
+
+    #[test]
+    fn unreadable_role_still_requires_refresh() {
+        let snapshot = InstallationRoleSnapshot {
+            error: Some("role state is unreadable".to_owned()),
+            ..Default::default()
+        };
+
+        assert_eq!(parsed_installation_role(&snapshot), None);
+    }
+
+    #[test]
     fn service_is_resolved_beside_the_running_target_specific_app() {
         let root = std::env::temp_dir().join(format!(
             "vapor-installer-service-path-{}",
@@ -820,6 +878,24 @@ mod tests {
         assert_eq!(resolve_service_path(&application).unwrap(), service);
 
         std::fs::remove_dir_all(root).expect("remove temporary app directory");
+    }
+
+    #[test]
+    fn player_setup_receipt_is_checked_at_the_selected_installation() {
+        let root = std::env::temp_dir().join(format!(
+            "vapor-installer-player-receipt-{}",
+            std::process::id()
+        ));
+        let receipt = root.join(".vapor/state/installer/player.toml");
+        std::fs::create_dir_all(receipt.parent().unwrap()).expect("create receipt directory");
+        std::fs::write(&receipt, "schema = 1\nstate = \"ready\"\n").expect("write receipt");
+
+        assert!(player_setup_ready_at(&root));
+
+        std::fs::write(&receipt, "schema = 1\nstate = \"incomplete\"\n")
+            .expect("replace receipt");
+        assert!(!player_setup_ready_at(&root));
+        std::fs::remove_dir_all(root).expect("remove temporary app root");
     }
 
     #[test]
