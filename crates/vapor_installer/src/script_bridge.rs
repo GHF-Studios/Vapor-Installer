@@ -1,7 +1,7 @@
-//! Small in-process bridge from `vapor-installer` to the app-root tool layer.
+//! Small in-process bridge from `vapor-installer` to the Vapor-home tool layer.
 //!
 //! The shipped binary cannot assume Rust, Cargo, Git, or SteamCMD already exist
-//! on a tester machine, so the app-root launcher compiles the shared tool
+//! on a tester machine, so the Vapor-home launcher compiles the shared tool
 //! implementation and dispatches to it directly.
 
 #[path = "../../../../resources/vapor/tools/_shared/vapor_tools.rs"]
@@ -23,7 +23,7 @@ pub(crate) enum ToolScript {
 impl ToolScript {
     fn label(self) -> &'static str {
         match self {
-            Self::Status => "app-root status",
+            Self::Status => "Vapor-home status",
             Self::SetupPlayer => "player setup",
             Self::TeardownPlayer => "player teardown",
             Self::SetupDevelopment => "development setup",
@@ -85,7 +85,7 @@ pub(crate) fn clone_source(
 pub(crate) fn print_dry_run(script: ToolScript, app_root: Option<&Path>, extra_args: &[String]) {
     let mut parts = vec![script.label().to_owned()];
     if let Some(app_root) = app_root {
-        parts.push(format!("app-root={}", shell_quote_path(app_root)));
+        parts.push(format!("Vapor-home={}", shell_quote_path(app_root)));
     }
     parts.extend(extra_args.iter().map(|arg| shell_quote(arg)));
     println!("dry-run: would run precompiled Vapor maintenance operation");

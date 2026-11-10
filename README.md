@@ -1,55 +1,23 @@
 # Vapor Installer
 
-`vapor-installer` is the precompiled app-root maintenance and workflow shim.
-`vapor_installer_ui` is the Installer product module hosted by Vapor-GUI; its
-normal status, install, repair, and uninstall actions call Vapor's shared
-operations directly.
+`vapor-installer-gui` is the first-run installer and maintenance UI for the
+standalone Vapor home. A release bundle contains `Vapor-Standalone.toml`,
+target-specific executables under `bin/<target>/`, and shared read-only release
+assets. The installer copies that allowlisted payload into the default Vapor
+home, writes `Vapor-Home.toml`, and then guides the user through Player or
+Developer setup.
 
-The setup, teardown, app-root, toolchain, and RustRover workflow-launch
-operations use the shared app-root tool implementation:
+Vapor home is separate from the Loo-Cast Steam app. Steam does not install,
+update, or uninstall Vapor; removing Loo-Cast leaves Vapor and its data in place.
+The Steam handoff only locates Vapor and passes its own product directory as
+context.
 
-```text
-resources/vapor/tools/
-```
+Repair and uninstall operate on Vapor-owned files and machine integration.
+Uninstall preserves the user's `data`, `sources`, `content`, and cache unless
+the user separately chooses to remove them. It never deletes Steam-owned
+product files or a locally installed game.
 
-The source-visible Rust scripts remain useful development affordances, but the
-shipped binary compiles the same implementation directly. First-run setup,
-maintenance, and RustRover workflow launch therefore do not require Rust or
+The command-line `vapor-installer` remains the maintenance adapter. Shared
+setup and workflow implementations are compiled from
+`resources/vapor/tools/` so first-run work does not require Rust or
 `rust-script` to already be installed.
-
-## Command mapping
-
-```text
-vapor-installer status
-  -> in-process app-root status
-
-vapor-installer install [--app-root PATH]
-  -> in-process player setup
-
-vapor-installer uninstall [--app-root PATH]
-  -> in-process player teardown
-
-vapor-installer dev-env status
-  -> in-process app-root status
-
-vapor-installer dev-env install [--app-root PATH]
-  -> in-process development provider setup
-
-vapor-installer dev-env uninstall [--app-root PATH]
-  -> in-process development provider teardown
-
-vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]
-  -> in-process RustRover project patch
-
-vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root PATH]
-  -> in-process RustRover workflow launcher
-```
-
-`post-install` and `pre-uninstall` are also delegated to the matching lifecycle
-anchor scripts.
-
-## Runtime shape
-
-For normal installed-app use, `vapor-installer` is the stable precompiled
-adapter. For local development, the Rust scripts can still expose the same
-implementation directly when Rust is already available.

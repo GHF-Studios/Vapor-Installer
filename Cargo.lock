@@ -3972,6 +3972,13 @@ dependencies = [
 [[package]]
 name = "vapor_installer"
 version = "0.5.0"
+dependencies = [
+ "reqwest",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "vapor_installer_ui"
@@ -3981,7 +3988,6 @@ dependencies = [
  "vapor_client",
  "vapor_client_protocol",
  "vapor_core",
- "vapor_installer",
 ]
 
 [[package]]

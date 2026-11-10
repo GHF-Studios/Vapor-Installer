@@ -1,4 +1,4 @@
-//! Precompiled command-line front-end for Vapor app-root maintenance and workflows.
+//! Precompiled command-line front-end for Vapor Vapor-home maintenance and workflows.
 
 use crate::script_bridge::{self, ToolScript};
 use std::{env, path::PathBuf};
@@ -59,26 +59,26 @@ pub fn help_text() -> String {
     [
         "Vapor App Maintenance",
         "",
-        "Precompiled setup, teardown, app-root maintenance, and IDE workflow launch for the installed Vapor app.",
+        "Precompiled setup, teardown, Vapor-home maintenance, and IDE workflow launch for the installed Vapor app.",
         "Provider tools such as Rust, Cargo, Git, and SteamCMD are managed capabilities, not prerequisites for this control surface.",
         "",
         "Usage",
-        "  vapor-installer status [--app-root PATH]",
-        "  vapor-installer install [--app-root PATH] [--dry-run]",
-        "  vapor-installer uninstall [--app-root PATH] [--dry-run]",
-        "  vapor-installer dev-env status [--app-root PATH]",
-        "  vapor-installer dev-env install [--app-root PATH] [--dry-run]",
-        "  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]",
-        "  vapor-installer superworkspace create --path PATH [--app-root PATH] [--dry-run]",
-        "  vapor-installer source status --super-workspace PATH [--app-root PATH]",
-        "  vapor-installer source clone SOURCE_NAME --super-workspace PATH [--app-root PATH] [--dry-run]",
-        "  vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]",
-        "  vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root PATH]",
-        "  vapor-installer post-install [--app-root PATH]",
+        "  vapor-installer status [--vapor-home PATH]",
+        "  vapor-installer install [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer uninstall [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer dev-env status [--vapor-home PATH]",
+        "  vapor-installer dev-env install [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer dev-env uninstall [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer superworkspace create --path PATH [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer source status --super-workspace PATH [--vapor-home PATH]",
+        "  vapor-installer source clone SOURCE_NAME --super-workspace PATH [--vapor-home PATH] [--dry-run]",
+        "  vapor-installer ide patch-rustrover --super-workspace PATH [--vapor-home PATH]",
+        "  vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--vapor-home PATH]",
+        "  vapor-installer post-install [--vapor-home PATH]",
         "  vapor-installer pre-uninstall",
         "",
         "Runtime shape",
-        "  The shipped binary calls the shared app-root tool implementation in-process so setup and IDE workflow launch do not require Rust to already be installed.",
+        "  The shipped binary calls the shared Vapor-home tool implementation in-process so setup and IDE workflow launch do not require Rust to already be installed.",
     ]
     .join("\n")
 }
@@ -106,7 +106,7 @@ fn run_superworkspace(mut args: Vec<String>) -> Result<(), String> {
                 .path
                 .or_else(|| single_positional_path(&options.positionals))
                 .ok_or_else(|| {
-                    "usage: vapor-installer superworkspace create --path PATH [--app-root PATH]"
+                    "usage: vapor-installer superworkspace create --path PATH [--vapor-home PATH]"
                         .to_owned()
                 })?;
             if options.dry_run {
@@ -135,7 +135,7 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
         "clone" => {
             let options = parse_workspace_options(args)?;
             let source_name = single_positional_value(&options.positionals).ok_or_else(|| {
-                "usage: vapor-installer source clone SOURCE_NAME --super-workspace PATH [--app-root PATH]"
+                "usage: vapor-installer source clone SOURCE_NAME --super-workspace PATH [--vapor-home PATH]"
                     .to_owned()
             })?;
             if options.dry_run {
@@ -144,7 +144,7 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
                     println!("  super-workspace: {}", super_workspace.display());
                 }
                 if let Some(app_root) = &options.app_root {
-                    println!("  app-root: {}", app_root.display());
+                    println!("  Vapor-home: {}", app_root.display());
                 }
                 return Ok(());
             }
@@ -203,10 +203,10 @@ fn parse_options(args: Vec<String>) -> Result<ToolOptions, String> {
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--app-root" => {
+            "--vapor-home" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
+                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--dry-run" => options.dry_run = true,
@@ -221,10 +221,10 @@ fn parse_workspace_options(args: Vec<String>) -> Result<WorkspaceOptions, String
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--app-root" => {
+            "--vapor-home" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
+                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--super-workspace" => {
