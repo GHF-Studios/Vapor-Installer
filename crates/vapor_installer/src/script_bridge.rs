@@ -63,6 +63,10 @@ pub(crate) fn setup_player_for(app_root: &Path) -> Result<(), String> {
     vapor_tools::setup_player_for(app_root)
 }
 
+pub(crate) fn teardown_development_for(app_root: &Path) -> Result<(), String> {
+    vapor_tools::teardown_development_for(app_root)
+}
+
 pub(crate) fn create_superworkspace(root: &Path, app_root: Option<&Path>) -> Result<(), String> {
     vapor_tools::create_superworkspace_at(root, app_root)
 }

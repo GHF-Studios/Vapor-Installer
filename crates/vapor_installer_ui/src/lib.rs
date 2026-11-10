@@ -14,28 +14,24 @@ use vapor_client_protocol::{
     InstallationRoleSnapshot, OperationStatus, ProtocolFrame,
 };
 
+mod full_erase;
+
 pub struct InstallerApp {
     installation: Option<vapor_core::VaporInstallation>,
-    page: InstallerPage,
     status: String,
     receiver: Option<mpsc::Receiver<Result<InstallerTaskResult, String>>>,
     confirm_uninstall: bool,
+    confirm_full_erase: bool,
+    full_erase_phrase: String,
     role: InstallationRoleSnapshot,
     selected_role: vapor_core::VaporRole,
     first_launch: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum InstallerPage {
-    #[default]
-    Overview,
-    Role,
-    Installation,
-}
-
 struct InstallerTaskResult {
     message: String,
     role: Option<InstallationRoleSnapshot>,
+    close_app: bool,
 }
 
 impl InstallerApp {
@@ -69,14 +65,15 @@ impl InstallerApp {
         let mut app = Self {
             status,
             installation,
-            page: InstallerPage::Overview,
             receiver: None,
             confirm_uninstall: false,
+            confirm_full_erase: false,
+            full_erase_phrase: String::new(),
             role: InstallationRoleSnapshot::default(),
             selected_role: if first_launch {
                 vapor_core::VaporRole::Player
             } else {
-                vapor_core::VaporRole::Composer
+                vapor_core::VaporRole::Developer
             },
             first_launch,
         };
@@ -109,15 +106,6 @@ impl InstallerApp {
                         )
                     })
                     .map_err(|error| error.to_string()),
-                InstallerOperation::Install => vapor_core::install_installation_for(&installation)
-                    .map(|report| {
-                        format!(
-                            "Installed Vapor at {}\nSuperworkspace: {}",
-                            report.installation_root.display(),
-                            report.superworkspace_root.display(),
-                        )
-                    })
-                    .map_err(|error| error.to_string()),
                 InstallerOperation::Repair => vapor_core::repair_managed_state_for(&installation)
                     .map(|report| {
                         format!(
@@ -142,6 +130,24 @@ impl InstallerApp {
             .map(|message| InstallerTaskResult {
                 message,
                 role: None,
+                close_app: false,
+            });
+            let _ = sender.send(result);
+        });
+    }
+
+    fn run_full_erase(&mut self) {
+        let Some(installation) = self.installation.clone() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+        self.status = "Scheduling complete Vapor data erasure…".to_owned();
+        thread::spawn(move || {
+            let result = full_erase::schedule(&installation.root).map(|log| InstallerTaskResult {
+                message: format!("Vapor erasure is queued. Result log: {}", log.display()),
+                role: None,
+                close_app: true,
             });
             let _ = sender.send(result);
         });
@@ -165,6 +171,8 @@ impl InstallerApp {
                     if !player_setup_ready_at(&installation.root) {
                         vapor_installer::setup_player_for_app_root(&installation.root)?;
                     }
+                } else if target == vapor_core::VaporRole::Player {
+                    vapor_installer::teardown_development_for_app_root(&installation.root)?;
                 }
                 let action = if promote {
                     DeveloperAction::PromoteInstallationRole {
@@ -227,9 +235,9 @@ impl InstallerApp {
     }
 
     fn player_setup_ready(&self) -> bool {
-        self.installation.as_ref().is_some_and(|installation| {
-            player_setup_ready_at(&installation.root)
-        })
+        self.installation
+            .as_ref()
+            .is_some_and(|installation| player_setup_ready_at(&installation.root))
     }
 
     fn continue_to_game(&mut self, context: &egui::Context) {
@@ -269,16 +277,16 @@ impl InstallerApp {
         ui.add_space(10.0);
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.heading("Choose how you’ll use Vapor");
-            ui.label("Player setup is included for every role. Creator roles also prepare their required development tools.");
+            ui.label(
+                "Developer installs the complete Vapor toolset. Player installs the runtime only.",
+            );
             ui.add_enabled_ui(self.receiver.is_none(), |ui| {
                 egui::ComboBox::from_id_salt("first-launch-role")
                     .selected_text(self.selected_role.display_name())
                     .show_ui(ui, |ui| {
                         for role in [
                             vapor_core::VaporRole::Player,
-                            vapor_core::VaporRole::Composer,
-                            vapor_core::VaporRole::ContentDeveloper,
-                            vapor_core::VaporRole::EcosystemDeveloper,
+                            vapor_core::VaporRole::Developer,
                         ] {
                             ui.selectable_value(&mut self.selected_role, role, role.display_name());
                         }
@@ -361,34 +369,34 @@ impl InstallerApp {
                     self.run_installer(InstallerOperation::Status);
                 }
             });
-            egui::CollapsingHeader::new("Advanced installation tools")
+            egui::CollapsingHeader::new("More")
                 .default_open(false)
                 .show(ui, |ui| {
                     if let Some(installation) = &self.installation {
                         ui.label("App folder");
                         ui.monospace(installation.root.display().to_string());
                     }
-                    ui.horizontal_wrapped(|ui| {
-                        if ui
-                            .add_enabled(
-                                self.receiver.is_none() && self.installation.is_some(),
-                                egui::Button::new("Initialize or repair setup"),
-                            )
-                            .clicked()
-                        {
-                            self.run_installer(InstallerOperation::Install);
-                        }
-                        if ui
-                            .add_enabled(
-                                self.receiver.is_none() && self.installation.is_some(),
-                                egui::Button::new("Uninstall Vapor"),
-                            )
-                            .clicked()
-                        {
-                            self.confirm_uninstall = true;
-                        }
-                    });
+                    if ui
+                        .add_enabled(
+                            self.receiver.is_none() && self.installation.is_some(),
+                            egui::Button::new("Remove command registration; keep Vapor data"),
+                        )
+                        .clicked()
+                    {
+                        self.confirm_uninstall = true;
+                    }
                 });
+        });
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.colored_label(egui::Color32::LIGHT_RED, "Erase all Vapor data");
+            ui.label("Permanently remove Vapor Home, legacy Vapor settings, managed Rust tools, and the external Vapor compiler tools. Steam game files and the USB recovery drive are excluded.");
+            if ui
+                .add_enabled(self.receiver.is_none() && self.installation.is_some(), egui::Button::new("Review full erasure…"))
+                .clicked()
+            {
+                self.full_erase_phrase.clear();
+                self.confirm_full_erase = true;
+            }
         });
     }
 
@@ -430,9 +438,7 @@ impl InstallerApp {
                     .show_ui(ui, |ui| {
                         for role in [
                             vapor_core::VaporRole::Player,
-                            vapor_core::VaporRole::Composer,
-                            vapor_core::VaporRole::ContentDeveloper,
-                            vapor_core::VaporRole::EcosystemDeveloper,
+                            vapor_core::VaporRole::Developer,
                         ] {
                             ui.selectable_value(&mut self.selected_role, role, role.display_name());
                         }
@@ -459,7 +465,7 @@ impl InstallerApp {
                 self.run_role_transition(self.selected_role, self.selected_role > current);
             }
 
-            if current >= vapor_core::VaporRole::Composer {
+            if current == vapor_core::VaporRole::Developer {
                 ui.add_space(6.0);
                 ui.strong("Developer tools");
                 ui.horizontal_wrapped(|ui| {
@@ -494,25 +500,17 @@ fn player_setup_ready_at(app_root: &Path) -> bool {
     })
 }
 
-fn parsed_installation_role(
-    snapshot: &InstallationRoleSnapshot,
-) -> Option<vapor_core::VaporRole> {
+fn parsed_installation_role(snapshot: &InstallationRoleSnapshot) -> Option<vapor_core::VaporRole> {
     snapshot.role.parse().ok()
 }
 
 fn role_description(role: vapor_core::VaporRole) -> &'static str {
     match role {
         vapor_core::VaporRole::Player => {
-            "Play compositions and install content. Developer tools are not required."
+            "Play compositions and install content. Developer tools are not installed."
         }
-        vapor_core::VaporRole::Composer => {
-            "Create and manage playable compositions. Vapor prepares Rust, Cargo, Windows build support, and Tracy."
-        }
-        vapor_core::VaporRole::ContentDeveloper => {
-            "Create and publish content that can be added to compositions."
-        }
-        vapor_core::VaporRole::EcosystemDeveloper => {
-            "Work on Vapor itself and its first-party ecosystem."
+        vapor_core::VaporRole::Developer => {
+            "Build and manage Vapor content and ecosystem projects. The complete managed development toolset is included."
         }
     }
 }
@@ -612,6 +610,7 @@ fn task_result(response: &ClientResponse) -> InstallerTaskResult {
     InstallerTaskResult {
         message,
         role: Some(role),
+        close_app: false,
     }
 }
 
@@ -654,7 +653,6 @@ fn readiness(ready: bool) -> &'static str {
 #[derive(Clone, Copy)]
 enum InstallerOperation {
     Status,
-    Install,
     Repair,
     Uninstall,
 }
@@ -663,7 +661,6 @@ impl InstallerOperation {
     fn label(self) -> &'static str {
         match self {
             Self::Status => "status check",
-            Self::Install => "install",
             Self::Repair => "repair",
             Self::Uninstall => "uninstall",
         }
@@ -685,6 +682,9 @@ impl eframe::App for InstallerApp {
                         self.role = role;
                     }
                     self.status = result.message;
+                    if result.close_app {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 }
                 Err(error) => self.status = error,
             }
@@ -702,53 +702,15 @@ impl eframe::App for InstallerApp {
                 });
             });
         } else {
-            egui::Panel::top("installer-navigation").show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.heading("Vapor Installer");
-                    ui.separator();
-                    for (page, label) in [
-                        (InstallerPage::Overview, "Overview"),
-                        (InstallerPage::Role, "Your role"),
-                        (InstallerPage::Installation, "Installation"),
-                    ] {
-                        if ui.selectable_label(self.page == page, label).clicked() {
-                            self.page = page;
-                        }
-                    }
-                });
-            });
             egui::CentralPanel::default().show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| match self.page {
-                    InstallerPage::Overview => {
-                        ui.add_space(8.0);
-                        ui.heading("Set up this device for Vapor");
-                        ui.label("Choose how you use Vapor. You can change your role at any time.");
-                        ui.add_space(18.0);
-                        if ui.available_width() >= 820.0 {
-                            ui.columns(2, |columns| {
-                                self.draw_role_panel(&mut columns[0]);
-                                self.draw_installation_panel(&mut columns[1]);
-                            });
-                        } else {
-                            self.draw_role_panel(ui);
-                            ui.add_space(12.0);
-                            self.draw_installation_panel(ui);
-                        }
-                    }
-                    InstallerPage::Role => {
-                        ui.add_space(8.0);
-                        ui.heading("Choose your role");
-                        ui.label("Vapor prepares only the tools needed for the role you select.");
-                        ui.add_space(12.0);
-                        self.draw_role_panel(ui);
-                    }
-                    InstallerPage::Installation => {
-                        ui.add_space(8.0);
-                        ui.heading("Installation and recovery");
-                        ui.label("Repair the app if it is incomplete, or inspect advanced local details.");
-                        ui.add_space(12.0);
-                        self.draw_installation_panel(ui);
-                    }
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(10.0);
+                    ui.heading("Vapor on this device");
+                    ui.label("Install, repair, or completely erase this local Vapor setup.");
+                    ui.add_space(12.0);
+                    self.draw_role_panel(ui);
+                    ui.add_space(10.0);
+                    self.draw_installation_panel(ui);
                 });
             });
             egui::Panel::bottom("installer-status").show(ui, |ui| {
@@ -761,18 +723,93 @@ impl eframe::App for InstallerApp {
             });
         }
         if self.confirm_uninstall {
-            egui::Window::new("Confirm uninstall")
+            egui::Window::new("Remove command registration")
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
-                    ui.label("Use this operation before removing the Steam app. Steam may leave Vapor-managed files behind; this removes Vapor’s machine integration while preserving user data and authored source.");
+                    ui.label("This removes Vapor from your user PATH and clears its user environment entry. Vapor files, tools, projects, and settings remain on this device.");
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() {
                             self.confirm_uninstall = false;
                         }
-                        if ui.button("Uninstall Vapor").clicked() {
+                        if ui.button("Remove registration").clicked() {
                             self.confirm_uninstall = false;
                             self.run_installer(InstallerOperation::Uninstall);
+                        }
+                    });
+                });
+        }
+        if self.confirm_full_erase {
+            egui::Window::new("Erase all Vapor data")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_RED,
+                        "This permanently deletes Vapor and its local data.",
+                    );
+                    ui.label("Steam game files and your USB recovery drive are not included.");
+                    match self
+                        .installation
+                        .as_ref()
+                        .map(|installation| full_erase::inventory(&installation.root))
+                    {
+                        Some(Ok(targets)) => {
+                            egui::ScrollArea::vertical()
+                                .max_height(190.0)
+                                .show(ui, |ui| {
+                                    for target in targets {
+                                        ui.strong(target.label);
+                                        ui.monospace(target.path.display().to_string());
+                                    }
+                                });
+                        }
+                        Some(Err(error)) => {
+                            ui.colored_label(egui::Color32::LIGHT_RED, error);
+                        }
+                        None => {
+                            ui.label("No active Vapor Home was found.");
+                        }
+                    }
+                    if let Some(installation) = &self.installation {
+                        let preserved =
+                            full_erase::preserved_user_rust_paths(&installation.root);
+                        if !preserved.is_empty() {
+                            ui.separator();
+                            ui.strong("Kept outside this erase");
+                            ui.label(
+                                "Your user-level Rust and Cargo installations are not part of Vapor's managed toolchain and will be preserved.",
+                            );
+                            for path in preserved {
+                                ui.monospace(path.display().to_string());
+                            }
+                        }
+                    }
+                    ui.label("Type ERASE VAPOR to continue.");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.full_erase_phrase)
+                            .desired_width(280.0),
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.confirm_full_erase = false;
+                            self.full_erase_phrase.clear();
+                        }
+                        let can_erase = self.receiver.is_none()
+                            && self.full_erase_phrase == "ERASE VAPOR"
+                            && self.installation.as_ref().is_some_and(|installation| {
+                                full_erase::inventory(&installation.root).is_ok()
+                            });
+                        if ui
+                            .add_enabled(
+                                can_erase,
+                                egui::Button::new("Erase all listed Vapor data"),
+                            )
+                            .clicked()
+                        {
+                            self.confirm_full_erase = false;
+                            self.full_erase_phrase.clear();
+                            self.run_full_erase();
                         }
                     });
                 });
@@ -824,15 +861,15 @@ mod tests {
 
     #[test]
     fn installed_role_becomes_the_selected_role_instead_of_suggesting_a_demotion() {
-        let mut selected = vapor_core::VaporRole::Composer;
+        let mut selected = vapor_core::VaporRole::Player;
         let installed = InstallationRoleSnapshot {
-            role: "ecosystem-developer".to_owned(),
+            role: "developer".to_owned(),
             ..Default::default()
         };
 
         sync_role_selection(&mut selected, &installed);
 
-        assert_eq!(selected, vapor_core::VaporRole::EcosystemDeveloper);
+        assert_eq!(selected, vapor_core::VaporRole::Developer);
     }
 
     #[test]
@@ -843,7 +880,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(parsed_installation_role(&snapshot), Some(vapor_core::VaporRole::Player));
+        assert_eq!(
+            parsed_installation_role(&snapshot),
+            Some(vapor_core::VaporRole::Player)
+        );
     }
 
     #[test]
@@ -892,8 +932,7 @@ mod tests {
 
         assert!(player_setup_ready_at(&root));
 
-        std::fs::write(&receipt, "schema = 1\nstate = \"incomplete\"\n")
-            .expect("replace receipt");
+        std::fs::write(&receipt, "schema = 1\nstate = \"incomplete\"\n").expect("replace receipt");
         assert!(!player_setup_ready_at(&root));
         std::fs::remove_dir_all(root).expect("remove temporary app root");
     }
