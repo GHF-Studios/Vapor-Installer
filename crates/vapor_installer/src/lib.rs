@@ -4,6 +4,7 @@
 //! shared app-root tool implementation in-process. That keeps bootstrap paths
 //! usable before Rust, Cargo, Git, or SteamCMD providers are installed.
 
+pub mod app_release;
 pub mod cli;
 mod script_bridge;
 
