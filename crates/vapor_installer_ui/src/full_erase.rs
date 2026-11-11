@@ -368,6 +368,7 @@ fn validate_owned_directory(
     Ok(())
 }
 
+#[cfg(windows)]
 fn powershell_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
