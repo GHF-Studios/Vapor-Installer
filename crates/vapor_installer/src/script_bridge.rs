@@ -101,6 +101,13 @@ pub(crate) fn setup_player_for(app_root: &Path) -> Result<(), String> {
     vapor_tools::setup_player_for(app_root)
 }
 
+pub(crate) fn setup_development_for_with_progress(
+    app_root: &Path,
+    report_progress: impl FnMut(&str),
+) -> Result<(), String> {
+    vapor_tools::setup_development_with_progress(app_root, report_progress)
+}
+
 pub(crate) fn teardown_development_for(app_root: &Path) -> Result<(), String> {
     vapor_tools::teardown_development_for(app_root)
 }

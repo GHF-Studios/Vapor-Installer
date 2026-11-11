@@ -16,6 +16,15 @@ pub fn setup_player_for_app_root(app_root: &Path) -> Result<(), String> {
     script_bridge::setup_player_for(app_root)
 }
 
+/// Install the app-local Rust, cross-compilation tools, and setup state used
+/// by the Developer role. GUI and CLI entrypoints share this implementation.
+pub fn setup_development_for_app_root_with_progress(
+    app_root: &Path,
+    report_progress: impl FnMut(&str),
+) -> Result<(), String> {
+    script_bridge::setup_development_for_with_progress(app_root, report_progress)
+}
+
 /// Remove Vapor-managed developer tools from the selected Vapor Home.
 pub fn teardown_development_for_app_root(app_root: &Path) -> Result<(), String> {
     script_bridge::teardown_development_for(app_root)

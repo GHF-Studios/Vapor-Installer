@@ -172,7 +172,14 @@ impl InstallerApp {
                 if promote {
                     vapor_core::install_installation_for(&installation)
                         .map_err(|error| error.to_string())?;
-                    if !player_setup_ready_at(&installation.root) {
+                    if target == vapor_core::VaporRole::Developer {
+                        vapor_installer::setup_development_for_app_root_with_progress(
+                            &installation.root,
+                            |stage| {
+                                let _ = progress_sender.send(stage.to_owned());
+                            },
+                        )?;
+                    } else if !player_setup_ready_at(&installation.root) {
                         vapor_installer::setup_player_for_app_root(&installation.root)?;
                     }
                 } else if target == vapor_core::VaporRole::Player {
@@ -217,7 +224,18 @@ impl InstallerApp {
         thread::spawn(move || {
             let result = vapor_core::install_installation_for(&installation)
                 .map_err(|error| error.to_string())
-                .and_then(|_| vapor_installer::setup_player_for_app_root(&installation.root))
+                .and_then(|_| {
+                    if target == vapor_core::VaporRole::Developer && target > current {
+                        vapor_installer::setup_development_for_app_root_with_progress(
+                            &installation.root,
+                            |stage| {
+                                let _ = progress_sender.send(stage.to_owned());
+                            },
+                        )
+                    } else {
+                        vapor_installer::setup_player_for_app_root(&installation.root)
+                    }
+                })
                 .and_then(|()| {
                     if target > current {
                         run_service_action(
