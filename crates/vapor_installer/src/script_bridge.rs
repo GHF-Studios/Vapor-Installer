@@ -13,7 +13,6 @@ use std::path::Path;
 pub(crate) enum ToolScript {
     Status,
     SetupPlayer,
-    TeardownPlayer,
     SetupDevelopment,
     TeardownDevelopment,
     PostInstall,
@@ -25,7 +24,6 @@ impl ToolScript {
         match self {
             Self::Status => "app-root status",
             Self::SetupPlayer => "player setup",
-            Self::TeardownPlayer => "player teardown",
             Self::SetupDevelopment => "development setup",
             Self::TeardownDevelopment => "development teardown",
             Self::PostInstall => "post-install anchor",
@@ -43,7 +41,6 @@ pub(crate) fn run(
     match script {
         ToolScript::Status => vapor_tools::status_main(),
         ToolScript::SetupPlayer => vapor_tools::setup_player_main(),
-        ToolScript::TeardownPlayer => vapor_tools::teardown_player_main(),
         ToolScript::SetupDevelopment => vapor_tools::setup_development_main(),
         ToolScript::TeardownDevelopment => vapor_tools::teardown_development_main(),
         ToolScript::PostInstall => vapor_tools::post_install_main(),
@@ -68,6 +65,28 @@ pub(crate) fn install(app_root: Option<&Path>, quiet: bool) -> Result<(), String
         }
     }
     vapor_tools::setup_player_for(&installation.root)
+}
+
+pub(crate) fn uninstall(app_root: Option<&Path>, quiet: bool) -> Result<(), String> {
+    let installation = match app_root {
+        Some(root) => vapor_core::VaporInstallation::from_explicit_root(root.to_path_buf()),
+        None => vapor_core::VaporInstallation::discover(),
+    }
+    .map_err(|error| error.to_string())?;
+    let report = vapor_core::uninstall_installation_for(
+        &installation,
+        vapor_core::UninstallOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    if !quiet {
+        println!("Vapor was uninstalled from this user account");
+        println!("  Home preserved: {}", report.installation_root.display());
+        println!("  User data preserved: {}", report.data_root.display());
+        for item in report.integration {
+            println!("  {item}");
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn run_ide_workflow() -> Result<(), String> {

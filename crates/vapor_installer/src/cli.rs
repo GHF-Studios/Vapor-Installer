@@ -41,7 +41,7 @@ pub fn run_from_env() -> Result<(), String> {
     match command.as_str() {
         "status" => run_tool(ToolScript::Status, parse_options(args)?, quiet),
         "install" => run_install(parse_options(args)?, quiet),
-        "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
+        "uninstall" => run_uninstall(parse_options(args)?, quiet),
         "dev-env" => run_dev_env(args, quiet),
         "erase" => run_erase(args),
         "superworkspace" => run_superworkspace(args),
@@ -66,7 +66,9 @@ pub fn help_text() -> String {
         "Usage",
         "  vapor-installer status [--app-root PATH]",
         "  vapor-installer install [--app-root PATH] [--dry-run]",
+        "    registers VAPOR_HOME and PATH, then prepares player setup",
         "  vapor-installer uninstall [--app-root PATH] [--dry-run]",
+        "    removes machine integration while preserving Vapor Home and source",
         "  vapor-installer dev-env status [--app-root PATH]",
         "  vapor-installer dev-env install [--app-root PATH] [--dry-run]",
         "  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]",
@@ -249,6 +251,18 @@ fn run_install(options: ToolOptions, quiet: bool) -> Result<(), String> {
         return Ok(());
     }
     script_bridge::install(options.app_root.as_deref(), quiet)
+}
+
+fn run_uninstall(options: ToolOptions, quiet: bool) -> Result<(), String> {
+    if options.dry_run {
+        println!("dry-run: would remove Vapor machine integration");
+        if let Some(app_root) = options.app_root {
+            println!("  app-root={}", script_bridge::shell_quote(&app_root.to_string_lossy()));
+        }
+        println!("  Vapor Home and authored source would be preserved");
+        return Ok(());
+    }
+    script_bridge::uninstall(options.app_root.as_deref(), quiet)
 }
 
 fn remove_flag(args: &mut Vec<String>, flag: &str) -> bool {

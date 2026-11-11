@@ -24,10 +24,10 @@ vapor-installer status
   -> in-process app-root status
 
 vapor-installer install [--app-root PATH]
-  -> in-process player setup
+  -> register user VAPOR_HOME/PATH, then prepare player setup
 
 vapor-installer uninstall [--app-root PATH]
-  -> in-process player teardown
+  -> remove machine integration while preserving Vapor Home and authored source
 
 vapor-installer dev-env status
   -> in-process app-root status
