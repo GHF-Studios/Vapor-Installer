@@ -492,7 +492,7 @@ impl InstallerApp {
 }
 
 fn player_setup_ready_at(app_root: &Path) -> bool {
-    let receipt = app_root.join(".vapor/state/installer/player.toml");
+    let receipt = app_root.join("data/state/installer/player.toml");
     std::fs::read_to_string(receipt).ok().is_some_and(|source| {
         source
             .lines()
@@ -930,7 +930,7 @@ mod tests {
             "vapor-installer-player-receipt-{}",
             std::process::id()
         ));
-        let receipt = root.join(".vapor/state/installer/player.toml");
+        let receipt = root.join("data/state/installer/player.toml");
         std::fs::create_dir_all(receipt.parent().unwrap()).expect("create receipt directory");
         std::fs::write(&receipt, "schema = 1\nstate = \"ready\"\n").expect("write receipt");
 
