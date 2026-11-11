@@ -9,6 +9,7 @@ name = "vapor-installer"
 path = "src/main.rs"
 
 [dependencies]
+vapor_core = { path = "../../../Vapor/crates/vapor_core" }
 ring = "0.17.14"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

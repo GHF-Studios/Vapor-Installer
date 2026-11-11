@@ -6,6 +6,7 @@
 
 pub mod app_release;
 pub mod cli;
+pub mod full_erase;
 mod script_bridge;
 
 use std::path::Path;

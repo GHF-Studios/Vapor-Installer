@@ -7,13 +7,13 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct EraseTarget {
+pub struct EraseTarget {
     pub label: &'static str,
     pub path: PathBuf,
 }
 
 #[cfg(windows)]
-pub(crate) fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
+pub fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
     let profile = env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .ok_or_else(|| "Windows user profile could not be resolved.".to_owned())?;
@@ -58,7 +58,7 @@ pub(crate) fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
+pub fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
     let user_home = env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| "The current user's home directory could not be resolved.".to_owned())?;
@@ -90,7 +90,7 @@ pub(crate) fn inventory(home: &Path) -> Result<Vec<EraseTarget>, String> {
     Ok(targets)
 }
 
-pub(crate) fn preserved_user_rust_paths(home: &Path) -> Vec<PathBuf> {
+pub fn preserved_user_rust_paths(home: &Path) -> Vec<PathBuf> {
     let profile = env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(PathBuf::from));
@@ -106,7 +106,7 @@ pub(crate) fn preserved_user_rust_paths(home: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(windows)]
-pub(crate) fn schedule(home: &Path) -> Result<PathBuf, String> {
+pub fn schedule(home: &Path) -> Result<PathBuf, String> {
     let targets = inventory(home)?;
     let installation = vapor_core::VaporInstallation::from_explicit_root(home.to_path_buf())
         .map_err(|error| error.to_string())?;
@@ -196,12 +196,12 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-pub(crate) fn inventory(_home: &Path) -> Result<Vec<EraseTarget>, String> {
+pub fn inventory(_home: &Path) -> Result<Vec<EraseTarget>, String> {
     Err("Full Vapor erasure is supported only on Windows and Linux.".to_owned())
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn schedule(home: &Path) -> Result<PathBuf, String> {
+pub fn schedule(home: &Path) -> Result<PathBuf, String> {
     use std::{
         fs::OpenOptions,
         io::Write,
@@ -289,7 +289,9 @@ rm -f -- "$0"
     ) {
         let _ = fs::remove_file(&script_path);
         let _ = fs::remove_file(&log_path);
-        return Err(format!("Could not remove Vapor command registration: {error}"));
+        return Err(format!(
+            "Could not remove Vapor command registration: {error}"
+        ));
     }
 
     let mut command = Command::new("/bin/sh");
@@ -323,7 +325,7 @@ rm -f -- "$0"
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-pub(crate) fn schedule(_home: &Path) -> Result<PathBuf, String> {
+pub fn schedule(_home: &Path) -> Result<PathBuf, String> {
     Err("Full Vapor erasure is supported only on Windows and Linux.".to_owned())
 }
 

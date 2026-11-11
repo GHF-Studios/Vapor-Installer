@@ -3978,6 +3978,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "vapor_core",
 ]
 
 [[package]]

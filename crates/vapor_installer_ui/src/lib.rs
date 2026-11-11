@@ -14,8 +14,6 @@ use vapor_client_protocol::{
     InstallationRoleSnapshot, OperationStatus, ProtocolFrame,
 };
 
-mod full_erase;
-
 pub struct InstallerApp {
     installation: Option<vapor_core::VaporInstallation>,
     status: String,
@@ -144,10 +142,12 @@ impl InstallerApp {
         self.receiver = Some(receiver);
         self.status = "Scheduling complete Vapor data erasure…".to_owned();
         thread::spawn(move || {
-            let result = full_erase::schedule(&installation.root).map(|log| InstallerTaskResult {
-                message: format!("Vapor erasure is queued. Result log: {}", log.display()),
-                role: None,
-                close_app: true,
+            let result = vapor_installer::full_erase::schedule(&installation.root).map(|log| {
+                InstallerTaskResult {
+                    message: format!("Vapor erasure is queued. Result log: {}", log.display()),
+                    role: None,
+                    close_app: true,
+                }
             });
             let _ = sender.send(result);
         });
@@ -752,7 +752,9 @@ impl eframe::App for InstallerApp {
                     match self
                         .installation
                         .as_ref()
-                        .map(|installation| full_erase::inventory(&installation.root))
+                        .map(|installation| {
+                            vapor_installer::full_erase::inventory(&installation.root)
+                        })
                     {
                         Some(Ok(targets)) => {
                             egui::ScrollArea::vertical()
@@ -773,7 +775,9 @@ impl eframe::App for InstallerApp {
                     }
                     if let Some(installation) = &self.installation {
                         let preserved =
-                            full_erase::preserved_user_rust_paths(&installation.root);
+                            vapor_installer::full_erase::preserved_user_rust_paths(
+                                &installation.root,
+                            );
                         if !preserved.is_empty() {
                             ui.separator();
                             ui.strong("Kept outside this erase");
@@ -798,7 +802,7 @@ impl eframe::App for InstallerApp {
                         let can_erase = self.receiver.is_none()
                             && self.full_erase_phrase == "ERASE VAPOR"
                             && self.installation.as_ref().is_some_and(|installation| {
-                                full_erase::inventory(&installation.root).is_ok()
+                                vapor_installer::full_erase::inventory(&installation.root).is_ok()
                             });
                         if ui
                             .add_enabled(

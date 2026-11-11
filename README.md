@@ -38,6 +38,13 @@ vapor-installer dev-env install [--app-root PATH]
 vapor-installer dev-env uninstall [--app-root PATH]
   -> in-process development provider teardown
 
+vapor-installer erase inventory --app-root PATH
+  -> list the exact Vapor-owned paths that a full erasure would remove
+
+vapor-installer erase all --app-root PATH --confirm "ERASE VAPOR"
+  -> remove command registration, then hand deletion to an external helper
+     that waits for the installer process to exit before removing Vapor Home
+
 vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]
   -> in-process RustRover project patch
 
@@ -47,6 +54,13 @@ vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root P
 
 `post-install` and `pre-uninstall` are also delegated to the matching lifecycle
 anchor scripts.
+
+Full erasure requires an explicit app root and the exact confirmation phrase.
+The inventory includes only the canonical Vapor Home and existing known Vapor
+state roots; Steam game files and user-managed Rust/Cargo installations outside
+Vapor Home are preserved. On Windows and Linux, deletion is handed to a
+short-lived helper outside Vapor Home so the running installer never deletes
+its own executable.
 
 ## Runtime shape
 

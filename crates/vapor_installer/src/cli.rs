@@ -43,6 +43,7 @@ pub fn run_from_env() -> Result<(), String> {
         "install" => run_tool(ToolScript::SetupPlayer, parse_options(args)?, quiet),
         "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
         "dev-env" => run_dev_env(args, quiet),
+        "erase" => run_erase(args),
         "superworkspace" => run_superworkspace(args),
         "source" => run_source(args),
         "ide" => run_ide(args),
@@ -69,6 +70,8 @@ pub fn help_text() -> String {
         "  vapor-installer dev-env status [--app-root PATH]",
         "  vapor-installer dev-env install [--app-root PATH] [--dry-run]",
         "  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]",
+        "  vapor-installer erase inventory --app-root PATH",
+        "  vapor-installer erase all --app-root PATH --confirm \"ERASE VAPOR\"",
         "  vapor-installer superworkspace create --path PATH [--app-root PATH] [--dry-run]",
         "  vapor-installer source status --super-workspace PATH [--app-root PATH]",
         "  vapor-installer source clone SOURCE_NAME --super-workspace PATH [--app-root PATH] [--dry-run]",
@@ -81,6 +84,68 @@ pub fn help_text() -> String {
         "  The shipped binary calls the shared app-root tool implementation in-process so setup and IDE workflow launch do not require Rust to already be installed.",
     ]
     .join("\n")
+}
+
+fn run_erase(mut args: Vec<String>) -> Result<(), String> {
+    let Some(operation) = take_subcommand(&mut args) else {
+        return Err("missing erase operation: inventory or all".to_owned());
+    };
+    let mut app_root = None;
+    let mut confirm = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--app-root" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
+                app_root = Some(PathBuf::from(value));
+            }
+            "--confirm" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "--confirm requires the exact phrase ERASE VAPOR".to_owned())?;
+                confirm = Some(value);
+            }
+            other => return Err(format!("unknown erase option '{other}'")),
+        }
+    }
+    let home = app_root.ok_or_else(|| {
+        "erase requires an explicit --app-root PATH; refusing to infer a deletion target".to_owned()
+    })?;
+
+    match operation.as_str() {
+        "inventory" => {
+            if confirm.is_some() {
+                return Err("erase inventory does not accept --confirm".to_owned());
+            }
+            let targets = crate::full_erase::inventory(&home)?;
+            println!("Vapor erase inventory for {}", home.display());
+            for target in targets {
+                println!("ERASE  {}  [{}]", target.path.display(), target.label);
+            }
+            let preserved = crate::full_erase::preserved_user_rust_paths(&home);
+            for path in preserved {
+                println!(
+                    "KEEP   {}  [user-managed Rust/Cargo outside Vapor Home]",
+                    path.display()
+                );
+            }
+            Ok(())
+        }
+        "all" => {
+            if confirm.as_deref() != Some("ERASE VAPOR") {
+                return Err("full erasure requires --confirm \"ERASE VAPOR\"".to_owned());
+            }
+            let log = crate::full_erase::schedule(&home)?;
+            println!("Vapor erasure is queued after this process exits.");
+            println!("Result log: {}", log.display());
+            Ok(())
+        }
+        other => Err(format!(
+            "unknown erase operation '{other}'; expected inventory or all"
+        )),
+    }
 }
 
 fn run_dev_env(mut args: Vec<String>, quiet: bool) -> Result<(), String> {
