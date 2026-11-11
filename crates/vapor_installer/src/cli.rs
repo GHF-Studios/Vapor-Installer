@@ -40,7 +40,7 @@ pub fn run_from_env() -> Result<(), String> {
     let command = args.remove(0);
     match command.as_str() {
         "status" => run_tool(ToolScript::Status, parse_options(args)?, quiet),
-        "install" => run_tool(ToolScript::SetupPlayer, parse_options(args)?, quiet),
+        "install" => run_install(parse_options(args)?, quiet),
         "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
         "dev-env" => run_dev_env(args, quiet),
         "erase" => run_erase(args),
@@ -240,6 +240,15 @@ fn run_tool(script: ToolScript, options: ToolOptions, quiet: bool) -> Result<(),
         return Ok(());
     }
     script_bridge::run(script, options.app_root.as_deref(), &[], quiet)
+}
+
+fn run_install(options: ToolOptions, quiet: bool) -> Result<(), String> {
+    if options.dry_run {
+        script_bridge::print_dry_run(ToolScript::SetupPlayer, options.app_root.as_deref(), &[]);
+        println!("  plus machine integration (VAPOR_HOME and PATH)");
+        return Ok(());
+    }
+    script_bridge::install(options.app_root.as_deref(), quiet)
 }
 
 fn remove_flag(args: &mut Vec<String>, flag: &str) -> bool {

@@ -51,6 +51,25 @@ pub(crate) fn run(
     }
 }
 
+pub(crate) fn install(app_root: Option<&Path>, quiet: bool) -> Result<(), String> {
+    let installation = match app_root {
+        Some(root) => vapor_core::VaporInstallation::from_explicit_root(root.to_path_buf()),
+        None => vapor_core::VaporInstallation::discover(),
+    }
+    .map_err(|error| error.to_string())?;
+    let report = vapor_core::install_installation_for(&installation)
+        .map_err(|error| error.to_string())?;
+    if !quiet {
+        println!("Vapor installed for this user");
+        println!("  Home: {}", report.installation_root.display());
+        println!("  Superworkspace: {}", report.superworkspace_root.display());
+        for item in report.integration {
+            println!("  {item}");
+        }
+    }
+    vapor_tools::setup_player_for(&installation.root)
+}
+
 pub(crate) fn run_ide_workflow() -> Result<(), String> {
     vapor_tools::ide_run_main()
 }
