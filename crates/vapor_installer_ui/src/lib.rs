@@ -18,6 +18,7 @@ pub struct InstallerApp {
     installation: Option<vapor_core::VaporInstallation>,
     status: String,
     receiver: Option<mpsc::Receiver<Result<InstallerTaskResult, String>>>,
+    progress_receiver: Option<mpsc::Receiver<String>>,
     confirm_uninstall: bool,
     confirm_full_erase: bool,
     full_erase_phrase: String,
@@ -64,6 +65,7 @@ impl InstallerApp {
             status,
             installation,
             receiver: None,
+            progress_receiver: None,
             confirm_uninstall: false,
             confirm_full_erase: false,
             full_erase_phrase: String::new(),
@@ -158,7 +160,9 @@ impl InstallerApp {
             return;
         };
         let (sender, receiver) = mpsc::channel();
+        let (progress_sender, progress_receiver) = mpsc::channel();
         self.receiver = Some(receiver);
+        self.progress_receiver = Some(progress_receiver);
         self.status = format!(
             "{} installation role…",
             if promote { "Preparing" } else { "Changing" }
@@ -183,7 +187,7 @@ impl InstallerApp {
                         target: target.as_str().to_owned(),
                     }
                 };
-                let mut result = run_service_action(action, true)?;
+                let mut result = run_service_action(action, true, Some(&progress_sender))?;
                 if promote {
                     result.message.push_str(
                         "\nVapor commands are registered on your user PATH. Open a new terminal to use them.",
@@ -206,7 +210,9 @@ impl InstallerApp {
             .parse::<vapor_core::VaporRole>()
             .unwrap_or(vapor_core::VaporRole::Player);
         let (sender, receiver) = mpsc::channel();
+        let (progress_sender, progress_receiver) = mpsc::channel();
         self.receiver = Some(receiver);
+        self.progress_receiver = Some(progress_receiver);
         self.status = format!("Setting up this installation for {target}…");
         thread::spawn(move || {
             let result = vapor_core::install_installation_for(&installation)
@@ -219,9 +225,14 @@ impl InstallerApp {
                                 target: target.as_str().to_owned(),
                             },
                             true,
+                            Some(&progress_sender),
                         )
                     } else {
-                        run_service_action(DeveloperAction::RefreshInstallationRole, false)
+                        run_service_action(
+                            DeveloperAction::RefreshInstallationRole,
+                            false,
+                            None,
+                        )
                     }
                 })
                 .map(|mut result| {
@@ -338,7 +349,7 @@ impl InstallerApp {
         self.receiver = Some(receiver);
         self.status = "Checking installation capabilities…".to_owned();
         thread::spawn(move || {
-            let result = run_service_action(DeveloperAction::RefreshInstallationRole, false);
+            let result = run_service_action(DeveloperAction::RefreshInstallationRole, false, None);
             let _ = sender.send(result);
         });
     }
@@ -518,6 +529,7 @@ fn role_description(role: vapor_core::VaporRole) -> &'static str {
 fn run_service_action(
     action: DeveloperAction,
     operation: bool,
+    progress: Option<&mpsc::Sender<String>>,
 ) -> Result<InstallerTaskResult, String> {
     // Installer is launched from the target-specific app directory
     // (`bin/<target>`). Resolve the service beside the executable that is
@@ -561,6 +573,15 @@ fn run_service_action(
                 Ok(ProtocolFrame::Event(ClientEvent::OperationChanged(event)))
                     if event.id == operation_id =>
                 {
+                    if let Some(progress) = progress {
+                        let message = event.message.clone().unwrap_or_else(|| {
+                            event
+                                .progress
+                                .map(|value| format!("{:?} · {:.0}%", event.phase, value * 100.0))
+                                .unwrap_or_else(|| format!("{:?}", event.phase))
+                        });
+                        let _ = progress.send(message);
+                    }
                     match event.status {
                         OperationStatus::Succeeded => break,
                         OperationStatus::Failed { message } => return Err(message),
@@ -675,6 +696,7 @@ impl eframe::App for InstallerApp {
             .and_then(|receiver| receiver.try_recv().ok())
         {
             self.receiver = None;
+            self.progress_receiver = None;
             match result {
                 Ok(result) => {
                     if let Some(role) = result.role {
@@ -688,6 +710,13 @@ impl eframe::App for InstallerApp {
                 }
                 Err(error) => self.status = error,
             }
+        }
+        if let Some(message) = self
+            .progress_receiver
+            .as_ref()
+            .and_then(|receiver| receiver.try_iter().last())
+        {
+            self.status = message;
         }
         if self.first_launch {
             egui::CentralPanel::default().show(ui, |ui| {
