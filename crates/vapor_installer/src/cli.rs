@@ -40,6 +40,7 @@ pub fn run_from_env() -> Result<(), String> {
     let command = args.remove(0);
     match command.as_str() {
         "status" => run_tool(ToolScript::Status, parse_options(args)?, quiet),
+        "app" => run_standalone_app(args),
         "install" => install(parse_options(args)?),
         "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
         "erase-all" => erase_all(args),
@@ -65,6 +66,13 @@ pub fn help_text() -> String {
         "",
         "Usage",
         "  vapor-installer status [--app-root PATH]",
+        "  vapor-installer app install [--channel CHANNEL]",
+        "  vapor-installer app update [--channel CHANNEL]",
+        "  vapor-installer app repair",
+        "  vapor-installer app versions",
+        "  vapor-installer app activate VERSION",
+        "  vapor-installer app uninstall --confirm",
+        "  vapor-installer app erase-all [--confirm]",
         "  vapor-installer install [--app-root PATH] [--dry-run]",
         "  vapor-installer uninstall [--app-root PATH] [--dry-run]",
         "  vapor-installer erase-all [--app-root PATH] [--confirm]",
@@ -80,9 +88,99 @@ pub fn help_text() -> String {
         "  vapor-installer pre-uninstall",
         "",
         "Runtime shape",
-        "  The shipped binary calls the shared Vapor tool implementation in-process so setup and IDE workflow launch do not require Rust to already be installed.",
+        "  `app` manages independently versioned Vapor releases in canonical Vapor User Data and does not require a Steam app root or developer tools.",
+        "  Legacy app-instance setup and IDE workflow commands call the shared Vapor tool implementation in-process.",
     ]
     .join("\n")
+}
+
+fn run_standalone_app(mut args: Vec<String>) -> Result<(), String> {
+    let command = take_subcommand(&mut args)
+        .ok_or_else(|| "usage: vapor-installer app <install|update|repair|versions|activate|uninstall|erase-all>".to_owned())?;
+    match command.as_str() {
+        "install" | "update" => {
+            let channel = parse_channel(args)?;
+            let report = crate::standalone::install_latest(&channel)?;
+            println!(
+                "Vapor {} is active from {} ({} / {}).{}",
+                report.version,
+                report.release_root.display(),
+                report.channel,
+                report.platform,
+                if report.already_installed {
+                    " The verified version was already installed."
+                } else {
+                    ""
+                }
+            );
+            Ok(())
+        }
+        "repair" => {
+            reject_positionals(&args, "app repair")?;
+            let report = crate::standalone::repair_latest()?;
+            println!("Vapor {} was repaired and activated at {}.", report.version, report.release_root.display());
+            Ok(())
+        }
+        "versions" => {
+            reject_positionals(&args, "app versions")?;
+            let active = crate::standalone::active_version()?;
+            let versions = crate::standalone::installed_versions()?;
+            if versions.is_empty() {
+                println!("No standalone Vapor releases are installed.");
+            } else {
+                for version in versions {
+                    println!(
+                        "{}{}",
+                        if active.as_deref() == Some(version.as_str()) {
+                            "* "
+                        } else {
+                            "  "
+                        },
+                        version
+                    );
+                }
+            }
+            Ok(())
+        }
+        "activate" => {
+            let version = single_positional_value(&args)
+                .ok_or_else(|| "usage: vapor-installer app activate VERSION".to_owned())?;
+            let path = crate::standalone::activate_installed_version(version)?;
+            println!("Vapor {version} is active: {}", path.display());
+            Ok(())
+        }
+        "uninstall" => {
+            if args.as_slice() != ["--confirm"] {
+                return Err("No data was removed. Repeat `vapor-installer app uninstall --confirm` to remove Vapor's installed program versions while preserving user data and source.".to_owned());
+            }
+            let preserved = crate::standalone::uninstall_app()?;
+            println!("Vapor program versions and shell integration were removed. User data and source were preserved.");
+            for path in preserved {
+                println!("Preserved unrecognized app entry: {}", path.display());
+            }
+            Ok(())
+        }
+        "erase-all" => erase_standalone_vapor_data(args),
+        other => Err(format!(
+            "unknown app subcommand '{other}'; use install, update, repair, versions, activate, uninstall, or erase-all"
+        )),
+    }
+}
+
+fn parse_channel(args: Vec<String>) -> Result<String, String> {
+    let mut channel = "stable".to_owned();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--channel" => {
+                channel = iter
+                    .next()
+                    .ok_or_else(|| "--channel requires a name".to_owned())?;
+            }
+            other => return Err(format!("unknown app install option '{other}'")),
+        }
+    }
+    Ok(channel)
 }
 
 fn erase_all(args: Vec<String>) -> Result<(), String> {
@@ -99,6 +197,9 @@ fn erase_all(args: Vec<String>) -> Result<(), String> {
             "--confirm" => confirmed = true,
             other => return Err(format!("unknown erase-all option '{other}'")),
         }
+    }
+    if app_root.is_none() {
+        return erase_standalone_vapor_data(if confirmed { vec!["--confirm".to_owned()] } else { Vec::new() });
     }
     let installation = match app_root {
         Some(root) => vapor_core::VaporInstallation::from_explicit_root(root),
@@ -147,6 +248,38 @@ fn erase_all(args: Vec<String>) -> Result<(), String> {
     println!("Vapor data erased. Machine integration removed.");
     for path in report.preserved_superworkspace_entries {
         println!("Preserved: {}", path.display());
+    }
+    Ok(())
+}
+
+fn erase_standalone_vapor_data(args: Vec<String>) -> Result<(), String> {
+    let confirmed = match args.as_slice() {
+        [] => false,
+        [flag] if flag == "--confirm" => true,
+        _ => return Err("usage: vapor-installer app erase-all [--confirm]".to_owned()),
+    };
+    let plan = vapor_core::plan_vapor_data_erasure().map_err(|error| error.to_string())?;
+    println!("Vapor User Data to erase: {}", plan.user_data_root.display());
+    if let Some(root) = &plan.superworkspace_root {
+        println!("Registered source workspace: {}", root.display());
+    }
+    for path in &plan.source_repositories {
+        println!("  source checkout: {}", path.display());
+    }
+    for path in &plan.superworkspace_data {
+        println!("  Vapor-managed workspace data: {}", path.display());
+    }
+    for path in &plan.preserved_superworkspace_entries {
+        println!("  preserved neighboring entry: {}", path.display());
+    }
+    if !confirmed {
+        return Err("No data was removed. Review the paths above, then repeat with `--confirm` to permanently erase Vapor data.".to_owned());
+    }
+    let report = vapor_core::erase_all_vapor_data_from_plan(&plan)
+        .map_err(|error| error.to_string())?;
+    println!("Vapor User Data and registered source checkouts were erased. Steam-managed Loo-Cast remains installed.");
+    for path in report.preserved_superworkspace_entries {
+        println!("Preserved neighboring entry: {}", path.display());
     }
     Ok(())
 }

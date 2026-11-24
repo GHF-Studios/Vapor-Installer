@@ -5,6 +5,8 @@
 //! usable before Rust, Cargo, Git, or SteamCMD providers are installed.
 
 pub mod cli;
+pub mod release;
+pub mod standalone;
 mod script_bridge;
 
 use std::path::Path;
