@@ -29,6 +29,11 @@ vapor-installer install [--app-root PATH]
 vapor-installer uninstall [--app-root PATH]
   -> in-process player teardown
 
+vapor-installer erase-all [--app-root PATH] --confirm
+  -> preflighted deletion of Vapor User Data and every source repository
+     registered in the canonical Superworkspace; unrecognized neighboring
+     files and the Steam-owned Loo-Cast depot are preserved
+
 vapor-installer dev-env status
   -> in-process app-root status
 
@@ -47,6 +52,11 @@ vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root P
 
 `post-install` and `pre-uninstall` are also delegated to the matching lifecycle
 anchor scripts.
+
+Erase-all is an explicit permanent-data-removal path. Without `--confirm`, the
+CLI prints the affected roots and performs no deletion. The Installer UI has a
+separate **Erase all Vapor data** action; ordinary uninstall preserves source
+and User Data. This is not yet the standalone install/update/version manager.
 
 ## Runtime shape
 

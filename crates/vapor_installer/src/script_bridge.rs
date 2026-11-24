@@ -1,7 +1,7 @@
-//! Small in-process bridge from `vapor-installer` to the app-root tool layer.
+//! Small in-process bridge from `vapor-installer` to Vapor's tool layer.
 //!
 //! The shipped binary cannot assume Rust, Cargo, Git, or SteamCMD already exist
-//! on a tester machine, so the app-root launcher compiles the shared tool
+//! on a tester machine, so the Installer compiles the shared tool
 //! implementation and dispatches to it directly.
 
 #[path = "../../../../resources/vapor/tools/_shared/vapor_tools.rs"]
@@ -12,7 +12,6 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ToolScript {
     Status,
-    SetupPlayer,
     TeardownPlayer,
     SetupDevelopment,
     TeardownDevelopment,
@@ -24,7 +23,6 @@ impl ToolScript {
     fn label(self) -> &'static str {
         match self {
             Self::Status => "app-root status",
-            Self::SetupPlayer => "player setup",
             Self::TeardownPlayer => "player teardown",
             Self::SetupDevelopment => "development setup",
             Self::TeardownDevelopment => "development teardown",
@@ -42,7 +40,6 @@ pub(crate) fn run(
 ) -> Result<(), String> {
     match script {
         ToolScript::Status => vapor_tools::status_main(),
-        ToolScript::SetupPlayer => vapor_tools::setup_player_main(),
         ToolScript::TeardownPlayer => vapor_tools::teardown_player_main(),
         ToolScript::SetupDevelopment => vapor_tools::setup_development_main(),
         ToolScript::TeardownDevelopment => vapor_tools::teardown_development_main(),
