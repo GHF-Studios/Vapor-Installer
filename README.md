@@ -42,6 +42,9 @@ vapor-installer dev-env status
 vapor-installer dev-env install [--app-root PATH]
   -> in-process development provider setup
 
+vapor-installer toolchain install
+  -> install Vapor-managed Rust/Cargo and cross-build tools in Vapor User Data
+
 vapor-installer dev-env uninstall [--app-root PATH]
   -> in-process development provider teardown
 
@@ -54,6 +57,15 @@ vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root P
 
 `post-install` and `pre-uninstall` are also delegated to the matching lifecycle
 anchor scripts.
+
+`toolchain install` is the standalone and automation path for a build host. It
+does not write into a versioned Vapor App Instance and does not install
+SteamCMD. Cargo, Rustup, Zig, LLVM-MinGW, and Vapor's cross-linker wrappers are
+kept under the canonical Vapor User Data root. `source clone` remains the
+Vapor-owned repository acquisition operation and accepts `--revision` with a
+full commit SHA; submodules are initialized at the exact gitlinks recorded by
+that revision. Without an explicit workspace path, source operations use the
+canonical `~/Vapor` source home.
 
 The signed standalone product lifecycle is being integrated into this same
 Installer owner:
@@ -79,7 +91,7 @@ launch. Artifact exposes a signed-release history index for older published
 versions, but the UI does not yet use it for remote version selection.
 
 The website bootstrap is a standalone `vapor-setup` binary. With no arguments
-it opens the install/update GUI; `vapor-setup install [--channel stable]`
+it opens the install/update GUI; `vapor-setup install [--channel stable] [--print-root]`
 performs the same signed install headlessly for managed bootstrap automation.
 It does not require Steam or another Vapor installation and is excluded from
 Steam depots. The release bundle includes it as a separate immutable asset

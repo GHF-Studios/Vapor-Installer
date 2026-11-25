@@ -14,6 +14,7 @@ struct WorkspaceOptions {
     app_root: Option<PathBuf>,
     super_workspace: Option<PathBuf>,
     path: Option<PathBuf>,
+    revision: Option<String>,
     dry_run: bool,
     positionals: Vec<String>,
 }
@@ -45,6 +46,7 @@ pub fn run_from_env() -> Result<(), String> {
         "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
         "erase-all" => erase_all(args),
         "dev-env" => run_dev_env(args, quiet),
+        "toolchain" => run_toolchain(args),
         "superworkspace" => run_superworkspace(args),
         "source" => run_source(args),
         "ide" => run_ide(args),
@@ -79,9 +81,10 @@ pub fn help_text() -> String {
         "  vapor-installer dev-env status [--app-root PATH]",
         "  vapor-installer dev-env install [--app-root PATH] [--dry-run]",
         "  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]",
-        "  vapor-installer superworkspace create --path PATH [--app-root PATH] [--dry-run]",
+        "  vapor-installer toolchain install [--dry-run]",
+        "  vapor-installer superworkspace create [--path PATH] [--app-root PATH] [--dry-run]",
         "  vapor-installer source status --super-workspace PATH [--app-root PATH]",
-        "  vapor-installer source clone SOURCE_NAME --super-workspace PATH [--app-root PATH] [--dry-run]",
+        "  vapor-installer source clone SOURCE_NAME [--super-workspace PATH] [--revision COMMIT] [--app-root PATH] [--dry-run]",
         "  vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]",
         "  vapor-installer ide run --workflow WORKFLOW --super-workspace PATH [--app-root PATH]",
         "  vapor-installer post-install [--app-root PATH]",
@@ -296,6 +299,21 @@ fn run_dev_env(mut args: Vec<String>, quiet: bool) -> Result<(), String> {
     }
 }
 
+fn run_toolchain(mut args: Vec<String>) -> Result<(), String> {
+    let Some(command) = take_subcommand(&mut args) else {
+        return Err("missing toolchain subcommand: install".to_owned());
+    };
+    match command.as_str() {
+        "install" if args.as_slice() == ["--dry-run"] => {
+            println!("dry-run: would install Rust/Cargo and cross tools in Vapor User Data");
+            Ok(())
+        }
+        "install" if args.is_empty() => script_bridge::install_managed_toolchain(),
+        "install" => Err("usage: vapor-installer toolchain install [--dry-run]".to_owned()),
+        other => Err(format!("unknown toolchain subcommand '{other}'; use install")),
+    }
+}
+
 fn run_superworkspace(mut args: Vec<String>) -> Result<(), String> {
     let Some(command) = take_subcommand(&mut args) else {
         return Err("missing superworkspace subcommand: create".to_owned());
@@ -306,10 +324,7 @@ fn run_superworkspace(mut args: Vec<String>) -> Result<(), String> {
             let root = options
                 .path
                 .or_else(|| single_positional_path(&options.positionals))
-                .ok_or_else(|| {
-                    "usage: vapor-installer superworkspace create --path PATH [--app-root PATH]"
-                        .to_owned()
-                })?;
+                .unwrap_or_else(canonical_superworkspace_root);
             if options.dry_run {
                 println!("dry-run: would create SuperWorkspace at {}", root.display());
                 return Ok(());
@@ -327,6 +342,9 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
     match command.as_str() {
         "status" => {
             let options = parse_workspace_options(args)?;
+            if options.revision.is_some() {
+                return Err("--revision is only valid for source clone".to_owned());
+            }
             reject_positionals(&options.positionals, "source status")?;
             script_bridge::source_status(
                 options.super_workspace.as_deref(),
@@ -336,7 +354,7 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
         "clone" => {
             let options = parse_workspace_options(args)?;
             let source_name = single_positional_value(&options.positionals).ok_or_else(|| {
-                "usage: vapor-installer source clone SOURCE_NAME --super-workspace PATH [--app-root PATH]"
+                "usage: vapor-installer source clone SOURCE_NAME [--super-workspace PATH] [--revision COMMIT] [--app-root PATH]"
                     .to_owned()
             })?;
             if options.dry_run {
@@ -347,12 +365,16 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
                 if let Some(app_root) = &options.app_root {
                     println!("  app-root: {}", app_root.display());
                 }
+                if let Some(revision) = &options.revision {
+                    println!("  revision: {revision}");
+                }
                 return Ok(());
             }
             script_bridge::clone_source(
                 options.super_workspace.as_deref(),
                 options.app_root.as_deref(),
                 source_name,
+                options.revision.as_deref(),
             )
         }
         other => Err(format!("unknown source subcommand '{other}'")),
@@ -455,12 +477,26 @@ fn parse_workspace_options(args: Vec<String>) -> Result<WorkspaceOptions, String
                     .ok_or_else(|| "--path requires a path".to_owned())?;
                 options.path = Some(PathBuf::from(value));
             }
+            "--revision" => {
+                options.revision = Some(
+                    iter.next()
+                        .ok_or_else(|| "--revision requires a commit SHA".to_owned())?,
+                );
+            }
             "--dry-run" => options.dry_run = true,
             other if other.starts_with("--") => return Err(format!("unknown option '{other}'")),
             positional => options.positionals.push(positional.to_owned()),
         }
     }
     Ok(options)
+}
+
+fn canonical_superworkspace_root() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .map(|home| home.join("Vapor"))
+        .unwrap_or_else(|| PathBuf::from("Vapor"))
 }
 
 fn single_positional_path(positionals: &[String]) -> Option<PathBuf> {
