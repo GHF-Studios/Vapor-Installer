@@ -1181,6 +1181,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "fdeflate"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3580,6 +3590,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "tiff"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3964,6 +3984,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "vapor_product_layout",
  "vapor_console_core",
  "vapor_content",
  "vapor_telemetry",
@@ -3973,7 +3994,16 @@ dependencies = [
 name = "vapor_installer"
 version = "0.5.0"
 dependencies = [
+ "flate2",
+ "reqwest",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "tar",
+ "toml",
  "vapor_core",
+ "vapor_product_layout",
 ]
 
 [[package]]
@@ -3985,6 +4015,13 @@ dependencies = [
  "vapor_client_protocol",
  "vapor_core",
  "vapor_installer",
+]
+
+[[package]]
+name = "vapor_product_layout"
+version = "0.5.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

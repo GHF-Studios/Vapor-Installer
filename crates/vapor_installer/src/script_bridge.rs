@@ -52,6 +52,10 @@ pub(crate) fn run_ide_workflow() -> Result<(), String> {
     vapor_tools::ide_run_main()
 }
 
+pub(crate) fn install_managed_toolchain() -> Result<(), String> {
+    vapor_tools::install_managed_toolchain_main()
+}
+
 pub(crate) fn patch_rustrover() -> Result<(), String> {
     vapor_tools::patch_rustrover_main()
 }
@@ -75,8 +79,9 @@ pub(crate) fn clone_source(
     super_workspace: Option<&Path>,
     app_root: Option<&Path>,
     source_name: &str,
+    revision: Option<&str>,
 ) -> Result<(), String> {
-    vapor_tools::clone_source_into_superworkspace(super_workspace, app_root, source_name)
+    vapor_tools::clone_source_into_superworkspace(super_workspace, app_root, source_name, revision)
 }
 
 pub(crate) fn print_dry_run(script: ToolScript, app_root: Option<&Path>, extra_args: &[String]) {
