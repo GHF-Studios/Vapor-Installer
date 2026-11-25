@@ -75,14 +75,15 @@ Steam creator handoff opens next. Version swaps do not modify the Steam app or
 authored source checkouts.
 
 The UI also lists locally installed versions and can select one for the next
-launch. It cannot yet select an older published version because Artifact has
-no signed available-version history endpoint.
+launch. Artifact exposes a signed-release history index for older published
+versions, but the UI does not yet use it for remote version selection.
 
-The website bootstrap is a standalone `vapor-setup` GUI binary. It exposes the
-signed install/update flow without opening the Steam app or requiring another
-Vapor installation; the same binary is excluded from Steam depots. Artifact
-publishes it as a separate immutable asset whose size and SHA-256 are covered
-by the signed release manifest.
+The website bootstrap is a standalone `vapor-setup` binary. With no arguments
+it opens the install/update GUI; `vapor-setup install [--channel stable]`
+performs the same signed install headlessly for managed bootstrap automation.
+It does not require Steam or another Vapor installation and is excluded from
+Steam depots. The release bundle includes it as a separate immutable asset
+whose size and SHA-256 are covered by the signed release manifest.
 
 The standalone release archive has its own App Instance manifest. Its source
 template is `Standalone-App.vapor.toml`; the release assembler places it in the
@@ -92,9 +93,9 @@ Steam-owned root `App.vapor.toml`, which contains Loo-Cast product metadata.
 On Linux the product path is `$XDG_DATA_HOME/vapor/apps/vapor` (falling back
 to `~/.local/share/vapor/apps/vapor`); on Windows it is
 `%LOCALAPPDATA%/Vapor/apps/vapor`. Releases are stored under `releases/` and
-the active version is an atomically replaced pointer. The setup-only window and
-release asset path are now in source, but no bootstrap binary has been
-assembled or published, and no production release is available to install.
+the active version is an atomically replaced pointer. The setup binary is
+compiled for Linux and Windows and included in locally signed `0.5.0` release
+bundles. No production release is available to install yet.
 
 Erase-all is an explicit permanent-data-removal path. The standalone form
 (`vapor-installer app erase-all`) works even after the Vapor program has been
@@ -103,14 +104,14 @@ source checkout, and workspace metadata paths and performs no deletion. The
 Installer UI offers the same path with a reviewable confirmation. It preserves
 unrecognized neighboring files and leaves Steam-managed Loo-Cast installed.
 Ordinary standalone uninstall removes the program and its shell/environment
-integration while preserving source and User Data. Release bundle assembly, a
-published signed release, clean-install proof, and standalone runtime
-verification remain unfinished.
+integration while preserving source and User Data. Publishing the signed
+bundles, clean-install proof, and standalone runtime verification remain
+unfinished.
 
 ## Runtime shape
 
 The versioned app still ships a precompiled `vapor-installer` adapter. The
-separate `vapor-setup` target is intended for the website bootstrap download;
-its source and signed Artifact path exist, but it has not yet been compiled into
-a release asset or published. For local development, Rust scripts expose the
-same app-root implementation when Rust is available.
+separate `vapor-setup` target is the website bootstrap download; it has been
+compiled and included in locally signed bundles but is not published on
+Artifact. For local development, Rust scripts expose the same app-root
+implementation when Rust is available.
