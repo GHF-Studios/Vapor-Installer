@@ -24,6 +24,7 @@ pub struct InstallerApp {
     page: InstallerPage,
     status: String,
     receiver: Option<mpsc::Receiver<Result<InstallerTaskResult, String>>>,
+    progress_receiver: Option<mpsc::Receiver<String>>,
     confirm_uninstall: bool,
     confirm_erase_all: bool,
     confirm_standalone_uninstall: bool,
@@ -81,6 +82,7 @@ impl InstallerApp {
             legacy_scan_message: String::new(),
             page: InstallerPage::Overview,
             receiver: None,
+            progress_receiver: None,
             confirm_uninstall: false,
             confirm_erase_all: false,
             confirm_standalone_uninstall: false,
@@ -491,7 +493,9 @@ impl InstallerApp {
         };
         let home = installation.root.clone();
         let (sender, receiver) = mpsc::channel();
+        let (progress_sender, progress_receiver) = mpsc::channel();
         self.receiver = Some(receiver);
+        self.progress_receiver = Some(progress_receiver);
         self.status = format!(
             "{} installation role…",
             if promote { "Preparing" } else { "Changing" }
@@ -759,6 +763,7 @@ fn run_service_action(
     home: &Path,
     action: DeveloperAction,
     operation: bool,
+    progress: Option<&mpsc::Sender<String>>,
 ) -> Result<InstallerTaskResult, String> {
     let target = vapor_core::HostTarget::current()
         .map_err(|error| error.to_string())?
@@ -811,6 +816,15 @@ fn run_service_action(
                 Ok(ProtocolFrame::Event(ClientEvent::OperationChanged(event)))
                     if event.id == operation_id =>
                 {
+                    if let Some(progress) = progress {
+                        let message = event.message.clone().unwrap_or_else(|| {
+                            event
+                                .progress
+                                .map(|value| format!("{:?} · {:.0}%", event.phase, value * 100.0))
+                                .unwrap_or_else(|| format!("{:?}", event.phase))
+                        });
+                        let _ = progress.send(message);
+                    }
                     match event.status {
                         OperationStatus::Succeeded => break,
                         OperationStatus::Failed { message } => return Err(message),
@@ -1077,6 +1091,7 @@ impl eframe::App for InstallerApp {
             .and_then(|receiver| receiver.try_recv().ok())
         {
             self.receiver = None;
+            self.progress_receiver = None;
             match result {
                 Ok(result) => {
                     if let Some(role) = result.role {
