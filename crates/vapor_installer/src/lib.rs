@@ -1,9 +1,10 @@
-//! Precompiled Vapor app-root maintenance and workflow shim.
+//! Precompiled Vapor Vapor-home maintenance and workflow shim.
 //!
 //! Setup, maintenance, and IDE workflow launch behavior delegates into the
-//! shared app-root tool implementation in-process. That keeps bootstrap paths
+//! shared Vapor-home tool implementation in-process. That keeps bootstrap paths
 //! usable before Rust, Cargo, Git, or SteamCMD providers are installed.
 
+pub mod app_release;
 pub mod cli;
 pub mod release;
 pub mod standalone;

@@ -87,7 +87,7 @@ pub(crate) fn clone_source(
 pub(crate) fn print_dry_run(script: ToolScript, app_root: Option<&Path>, extra_args: &[String]) {
     let mut parts = vec![script.label().to_owned()];
     if let Some(app_root) = app_root {
-        parts.push(format!("app-root={}", shell_quote_path(app_root)));
+        parts.push(format!("Vapor-home={}", shell_quote_path(app_root)));
     }
     parts.extend(extra_args.iter().map(|arg| shell_quote(arg)));
     println!("dry-run: would run precompiled Vapor maintenance operation");

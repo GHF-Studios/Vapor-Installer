@@ -13,6 +13,14 @@ use vapor_client_protocol::{
 
 pub struct InstallerApp {
     installation: Option<vapor_core::VaporInstallation>,
+    bundle_root: Option<PathBuf>,
+    legacy_product_root: String,
+    legacy_migration_required: bool,
+    legacy_product_entries: Vec<PathBuf>,
+    legacy_entries_to_move: Vec<PathBuf>,
+    legacy_products_confirmed: bool,
+    legacy_scan_valid: bool,
+    legacy_scan_message: String,
     page: InstallerPage,
     status: String,
     receiver: Option<mpsc::Receiver<Result<InstallerTaskResult, String>>>,
@@ -58,9 +66,26 @@ impl InstallerApp {
                 Err(error) => (None, error.to_string()),
             },
         };
+        let bundle_root = standalone_bundle_root();
+        let legacy_product_root = default_legacy_product_root()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        let legacy_migration_required = !legacy_product_root.is_empty();
+        let first_launch = first_launch || (installation.is_none() && bundle_root.is_some());
+        if installation.is_none() && bundle_root.is_some() {
+            status = "Ready to install Vapor into your user home.".to_owned();
+        }
         let mut app = Self {
             status,
             installation,
+            bundle_root,
+            legacy_product_root,
+            legacy_migration_required,
+            legacy_product_entries: Vec::new(),
+            legacy_entries_to_move: Vec::new(),
+            legacy_products_confirmed: false,
+            legacy_scan_valid: false,
+            legacy_scan_message: String::new(),
             page: InstallerPage::Overview,
             receiver: None,
             confirm_uninstall: false,
@@ -101,9 +126,17 @@ impl InstallerApp {
     }
 
     fn run_installer(&mut self, operation: InstallerOperation) {
-        let Some(installation) = self.installation.clone() else {
+        let installation = self.installation.clone();
+        let bundle_root = self.bundle_root.clone();
+        let legacy_product_root = self.legacy_product_root.trim();
+        let legacy_product_root =
+            (!legacy_product_root.is_empty()).then(|| PathBuf::from(legacy_product_root));
+        let legacy_product_entries = self.legacy_product_entries.clone();
+        if installation.is_none()
+            && !(matches!(operation, InstallerOperation::Install) && bundle_root.is_some())
+        {
             return;
-        };
+        }
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = format!("Running installer {}…", operation.label());
@@ -443,6 +476,7 @@ impl InstallerApp {
         let Some(installation) = self.installation.clone() else {
             return;
         };
+        let home = installation.root.clone();
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = format!(
@@ -463,7 +497,7 @@ impl InstallerApp {
                         target: target.as_str().to_owned(),
                     }
                 };
-                let mut result = run_service_action(action, true)?;
+                let mut result = run_service_action(&home, action, true)?;
                 if promote {
                     result.message.push_str(
                         "\nVapor commands are registered on your user PATH. Open a new terminal to use them.",
@@ -476,14 +510,18 @@ impl InstallerApp {
     }
 
     fn refresh_role(&mut self) {
-        if self.installation.is_none() {
+        let Some(home) = self
+            .installation
+            .as_ref()
+            .map(|installation| installation.root.clone())
+        else {
             return;
-        }
+        };
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.status = "Checking installation capabilities…".to_owned();
         thread::spawn(move || {
-            let result = run_service_action(DeveloperAction::RefreshInstallationRole, false);
+            let result = run_service_action(&home, DeveloperAction::RefreshInstallationRole, false);
             let _ = sender.send(result);
         });
     }
@@ -527,7 +565,7 @@ impl InstallerApp {
                 .default_open(false)
                 .show(ui, |ui| {
                     if let Some(installation) = &self.installation {
-                        ui.label("App folder");
+                        ui.label("Vapor home");
                         ui.monospace(installation.root.display().to_string());
                     }
                     ui.horizontal_wrapped(|ui| {
@@ -550,6 +588,24 @@ impl InstallerApp {
                             self.confirm_erase_all = true;
                         }
                     });
+                    if ui
+                        .add_enabled(
+                            self.receiver.is_none() && self.installation.is_some(),
+                            egui::Button::new("Erase Vapor and all local data"),
+                        )
+                        .clicked()
+                    {
+                        if let Some(installation) = &self.installation {
+                            match vapor_core::preview_full_nuke(installation) {
+                                Ok(preview) => {
+                                    self.full_nuke_paths = preview.paths;
+                                    self.full_nuke_confirmation.clear();
+                                    self.confirm_full_nuke = true;
+                                }
+                                Err(error) => self.status = error.to_string(),
+                            }
+                        }
+                    }
                 });
         });
     }
@@ -634,10 +690,27 @@ impl InstallerApp {
                         )
                     ));
                     ui.label(format!(
+                        "Linux build tools: {}",
+                        readiness(
+                            self.role.linux_gnu_target_ready && self.role.linux_gnu_linker_ready
+                        )
+                    ));
+                    ui.label(format!(
                         "Tracy: {}",
                         readiness(self.role.tracy_profiler_ready && self.role.tracy_analysis_ready)
                     ));
                 });
+            }
+            if current.requires_developer_environment()
+                && !self.role.developer_tools_ready()
+                && ui
+                    .add_enabled(
+                        self.receiver.is_none(),
+                        egui::Button::new("Repair Developer setup"),
+                    )
+                    .clicked()
+            {
+                self.run_installer(InstallerOperation::Repair);
             }
         });
     }
@@ -659,14 +732,23 @@ fn role_description(role: vapor_core::VaporRole) -> &'static str {
 }
 
 fn run_service_action(
+    home: &Path,
     action: DeveloperAction,
     operation: bool,
 ) -> Result<InstallerTaskResult, String> {
-    // Installer is launched from the target-specific app directory
-    // (`bin/<target>`). Resolve the service beside the executable that is
-    // actually running instead of assuming a flat `<root>/bin` layout.
-    let gui_executable = std::env::current_exe()
-        .map_err(|error| format!("could not locate the running Vapor Installer: {error}"))?;
+    let target = vapor_core::HostTarget::current()
+        .map_err(|error| error.to_string())?
+        .triple();
+    let gui_executable = home.join("bin").join(target).join(format!(
+        "vapor-installer-gui{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if !gui_executable.is_file() {
+        return Err(format!(
+            "Vapor Installer is missing from the selected Vapor home: {}",
+            gui_executable.display()
+        ));
+    }
     let service_path = resolve_service_path(&gui_executable)?;
     let mut client = Client::connect_or_start(
         &service_path,
@@ -814,6 +896,156 @@ impl InstallerOperation {
     }
 }
 
+fn execute_installer_operation(
+    operation: InstallerOperation,
+    installation: Option<&vapor_core::VaporInstallation>,
+    bundle_root: Option<&Path>,
+    legacy_product_root: Option<&Path>,
+    legacy_product_entries: &[PathBuf],
+) -> Result<String, String> {
+    match operation {
+        InstallerOperation::Status => {
+            let installation =
+                installation.ok_or_else(|| "No Vapor installation is selected.".to_owned())?;
+            let status = vapor_core::diagnose_managed_state_for(installation)
+                .map_err(|error| error.to_string())?;
+            Ok(format!(
+                "Vapor home: {}\nHealthy: {}\nToolchain: {} ({})\nProjects: {}",
+                status.installation_root.display(),
+                status.is_healthy(),
+                status.toolchain_version,
+                if status.toolchain_installed {
+                    "installed"
+                } else {
+                    "missing"
+                },
+                status.current_projects,
+            ))
+        }
+        InstallerOperation::Install => {
+            if let Some(installation) = installation {
+                let report = vapor_core::install_installation_for(installation)
+                    .map_err(|error| error.to_string())?;
+                mark_player_setup_ready_at(&installation.root)?;
+                return Ok(format!(
+                    "Vapor setup is ready at {}\nSuperworkspace: {}",
+                    report.installation_root.display(),
+                    report.superworkspace_root.display(),
+                ));
+            }
+            let bundle_root = bundle_root
+                .ok_or_else(|| "A standalone Vapor release bundle is required.".to_owned())?;
+            vapor_core::VaporInstallation::validate_standalone_bundle(bundle_root)
+                .map_err(|error| error.to_string())?;
+            let home = vapor_core::VaporInstallation::default_home_root()
+                .map_err(|error| error.to_string())?;
+            let migration_summary = if let Some(product_root) = legacy_product_root {
+                let bundle_root = std::fs::canonicalize(bundle_root)
+                    .map_err(|error| format!("Could not resolve the standalone bundle: {error}"))?;
+                let product_root = std::fs::canonicalize(product_root)
+                    .map_err(|error| format!("Could not resolve the Loo Cast folder: {error}"))?;
+                if bundle_root == product_root
+                    || bundle_root.starts_with(&product_root)
+                    || product_root.starts_with(&bundle_root)
+                {
+                    return Err("Run the standalone Vapor installer from outside the Loo Cast Steam folder before moving its old Vapor files.".to_owned());
+                }
+                let report = vapor_core::VaporInstallation::migrate_legacy_product_root(
+                    &product_root,
+                    &home,
+                    legacy_product_entries,
+                )
+                .map_err(|error| error.to_string())?;
+                format!(
+                    "\nMoved data into {} Vapor-home destination(s); kept {} current Packagepack depot file(s) in Steam.",
+                    report.migrated_paths.len(),
+                    report.retained_product_entries.len(),
+                )
+            } else {
+                String::new()
+            };
+            let installed = vapor_core::VaporInstallation::install_from_bundle(bundle_root, &home)
+                .map_err(|error| error.to_string())?;
+            Ok(format!(
+                "Vapor was installed at {}. Continue to choose Player or Developer setup.{}",
+                installed.root.display(),
+                migration_summary,
+            ))
+        }
+        InstallerOperation::Repair => {
+            let installation =
+                installation.ok_or_else(|| "No Vapor installation is selected.".to_owned())?;
+            let report = vapor_core::repair_managed_state_for(installation)
+                .map_err(|error| error.to_string())?;
+            Ok(format!(
+                "Repair complete. Vapor home: {}\nHealthy: {}",
+                report.status.installation_root.display(),
+                report.status.is_healthy(),
+            ))
+        }
+        InstallerOperation::Uninstall | InstallerOperation::FullNuke => {
+            let installation =
+                installation.ok_or_else(|| "No Vapor installation is selected.".to_owned())?;
+            let full_nuke = matches!(operation, InstallerOperation::FullNuke);
+            let report = vapor_core::uninstall_installation_for(
+                installation,
+                vapor_core::UninstallOptions {
+                    full_nuke,
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| error.to_string())?;
+            if full_nuke {
+                Ok(format!(
+                    "Full Vapor removal was scheduled for {} inventoried location(s). Close Vapor to finish.",
+                    report.full_nuke_paths.len(),
+                ))
+            } else {
+                Ok(format!(
+                    "Vapor was removed from {}. User data and authored source were preserved.",
+                    report.installation_root.display(),
+                ))
+            }
+        }
+    }
+}
+
+fn standalone_bundle_root() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    let target_directory = executable.parent()?;
+    let bin_directory = target_directory.parent()?;
+    if bin_directory.file_name()? != "bin" {
+        return None;
+    }
+    let root = bin_directory.parent()?;
+    (root.join("Vapor-Standalone.toml").is_file()
+        && root.join("metadata/toolchain.toml").is_file()
+        && root.join("resources").is_dir())
+    .then(|| root.to_path_buf())
+}
+
+fn default_legacy_product_root() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let roots = {
+        let steam = std::env::var_os("PROGRAMFILES(X86)")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)"));
+        vec![steam.join("Steam/steamapps/common/Loo Cast")]
+    };
+    #[cfg(not(windows))]
+    let roots = {
+        let home = std::env::var_os("HOME").map(PathBuf::from)?;
+        vec![
+            home.join(".steam/steam/steamapps/common/Loo Cast"),
+            home.join(".local/share/Steam/steamapps/common/Loo Cast"),
+        ]
+    };
+
+    roots
+        .into_iter()
+        .find(|root| root.join("App.vapor.toml").is_file())
+}
+
 impl eframe::App for InstallerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if let Some(result) = self
@@ -829,6 +1061,13 @@ impl eframe::App for InstallerApp {
                         self.role = role;
                     }
                     self.status = result.message;
+                    if self.installation.is_none() {
+                        self.installation = vapor_core::VaporInstallation::default_home_root()
+                            .ok()
+                            .and_then(|root| {
+                                vapor_core::VaporInstallation::from_explicit_root(root).ok()
+                            });
+                    }
                 }
                 Err(error) => self.status = error,
             }
@@ -912,7 +1151,7 @@ impl eframe::App for InstallerApp {
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
-                    ui.label("Use this operation before removing the Steam app. Steam may leave Vapor-managed files behind; this removes Vapor’s machine integration while preserving user data and authored source.");
+                    ui.label("This removes the independent Vapor installation and its machine integration. Steam-owned Loo-Cast files, locally installed games, and your user data are not removed by this action.");
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() {
                             self.confirm_uninstall = false;
@@ -1063,14 +1302,19 @@ mod tests {
     fn installer_keeps_an_explicit_root_as_its_operation_context() {
         let selected =
             std::env::temp_dir().join(format!("vapor-installer-ui-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&selected);
         std::fs::create_dir_all(&selected).expect("create app root");
-        std::fs::write(selected.join("App.vapor.toml"), "[root]\n").expect("write app manifest");
+        std::fs::write(
+            selected.join("Vapor-Home.toml"),
+            "schema = 1\n\n[vapor]\nid = \"ghf-studios/vapor\"\n",
+        )
+        .expect("write Vapor home marker");
 
         let app = InstallerApp::new(Some(selected.clone()));
 
         assert_eq!(
             app.installation.expect("explicit installation").root,
-            selected
+            std::fs::canonicalize(&selected).expect("canonicalize explicit installation")
         );
         std::fs::remove_dir_all(selected).expect("remove test app root");
     }

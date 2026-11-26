@@ -1,4 +1,4 @@
-//! Precompiled command-line front-end for Vapor app-root maintenance and workflows.
+//! Precompiled command-line front-end for Vapor Vapor-home maintenance and workflows.
 
 use crate::script_bridge::{self, ToolScript};
 use std::{env, path::PathBuf};
@@ -363,7 +363,7 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
                     println!("  super-workspace: {}", super_workspace.display());
                 }
                 if let Some(app_root) = &options.app_root {
-                    println!("  app-root: {}", app_root.display());
+                    println!("  Vapor-home: {}", app_root.display());
                 }
                 if let Some(revision) = &options.revision {
                     println!("  revision: {revision}");
@@ -441,10 +441,10 @@ fn parse_options(args: Vec<String>) -> Result<ToolOptions, String> {
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--app-root" => {
+            "--vapor-home" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
+                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--dry-run" => options.dry_run = true,
@@ -459,10 +459,10 @@ fn parse_workspace_options(args: Vec<String>) -> Result<WorkspaceOptions, String
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--app-root" => {
+            "--vapor-home" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
+                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--super-workspace" => {
