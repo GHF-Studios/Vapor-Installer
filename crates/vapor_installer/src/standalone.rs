@@ -126,6 +126,33 @@ fn install_latest_inner(channel: &str, force_repair: bool) -> Result<InstallRepo
 
     validate_release_payload(&payload_path)?;
 
+    // A versioned App Instance may still contain mutable state from the older
+    // layout. Move it before activation can make that release replaceable.
+    if let Some(previous_version) = previous_version.as_deref() {
+        let previous_root = layout
+            .release_root(previous_version)
+            .map_err(|error| error.to_string())?;
+        match fs::symlink_metadata(&previous_root) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(format!(
+                    "refusing to migrate state from an unsafe previous release path: {}",
+                    previous_root.display()
+                ));
+            }
+            Ok(_) => {
+                let previous = vapor_core::VaporInstallation::from_explicit_root(previous_root)
+                    .map_err(|error| format!("could not inspect previous Vapor release state: {error}"))?;
+                previous
+                    .ensure_state_root()
+                    .map_err(|error| format!("could not preserve previous Vapor release state: {error}"))?;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!("could not inspect previous Vapor release path: {error}"));
+            }
+        }
+    }
+
     create_managed_directory(&layout.releases_root(), "Vapor releases")
         .map_err(|error| format!("could not create the Vapor releases directory: {error}"))?;
     let backup = if release_root.exists() {
@@ -208,6 +235,33 @@ pub fn uninstall_app() -> Result<Vec<PathBuf>, String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => false,
         Err(error) => return Err(format!("could not inspect active-version pointer: {error}")),
     };
+    let staging = layout.root().join("staging");
+    match fs::symlink_metadata(&staging) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(format!("refusing to remove unsafe Vapor staging path: {}", staging.display()));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("could not inspect Vapor staging path: {error}")),
+    }
+
+    // Normal removal keeps mutable data, so migrate state out of every
+    // complete version before deleting the release tree.
+    if remove_releases {
+        let versions = layout
+            .installed_versions()
+            .map_err(|error| format!("could not list Vapor releases before removal: {error}"))?;
+        for version in versions {
+            let release = layout
+                .release_root(&version)
+                .map_err(|error| error.to_string())?;
+            let installation = vapor_core::VaporInstallation::from_explicit_root(release)
+                .map_err(|error| format!("could not inspect Vapor release before removal: {error}"))?;
+            installation
+                .ensure_state_root()
+                .map_err(|error| format!("could not preserve Vapor state before removal: {error}"))?;
+        }
+    }
     vapor_core::remove_standalone_machine_integration()
         .map_err(|error| format!("could not remove Vapor's shell integration: {error}"))?;
     if remove_releases {
@@ -218,6 +272,7 @@ pub fn uninstall_app() -> Result<Vec<PathBuf>, String> {
         fs::remove_file(&pointer)
             .map_err(|error| format!("could not remove active-version pointer: {error}"))?;
     }
+    remove_empty_staging_directory(&staging)?;
     let mut preserved = Vec::new();
     for entry in fs::read_dir(root).map_err(|error| format!("could not inspect Vapor app directory: {error}"))? {
         preserved.push(entry.map_err(|error| format!("could not inspect Vapor app entry: {error}"))?.path());
@@ -555,6 +610,46 @@ fn create_managed_directory(path: &Path, label: &str) -> Result<(), String> {
     }
 }
 
+/// Remove the owned staging parent only when it has no active or partial
+/// transaction directories. A concurrent installer may keep using it.
+fn remove_empty_staging_directory(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(format!("Vapor staging path is not a real directory: {}", path.display()));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("could not inspect Vapor staging directory: {error}")),
+    }
+
+    let mut entries = fs::read_dir(path)
+        .map_err(|error| format!("could not inspect Vapor staging directory: {error}"))?;
+    if entries.next().is_some() {
+        return Ok(());
+    }
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            // Another install may have started after the empty check. Preserve
+            // the shared parent if that operation created a child meanwhile.
+            match fs::read_dir(path) {
+                Ok(mut entries) => {
+                    if entries.next().is_some() {
+                        Ok(())
+                    } else {
+                        Err(format!("could not remove empty Vapor staging directory: {error}"))
+                    }
+                }
+                Err(inspect) if inspect.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(inspect) => Err(format!(
+                    "could not remove empty Vapor staging directory: {error}; could not recheck it: {inspect}"
+                )),
+            }
+        }
+    }
+}
+
 fn target_triple() -> Result<&'static str, String> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => Ok("x86_64-pc-windows-gnullvm"),
@@ -609,5 +704,8 @@ impl StageDirectory {
 impl Drop for StageDirectory {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+        if let Some(parent) = self.path.parent() {
+            let _ = remove_empty_staging_directory(parent);
+        }
     }
 }
