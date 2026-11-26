@@ -1,4 +1,4 @@
-//! Precompiled command-line front-end for Vapor Vapor-home maintenance and workflows.
+//! Precompiled command-line front-end for Vapor app-root maintenance and workflows.
 
 use crate::script_bridge::{self, ToolScript};
 use std::{env, path::PathBuf};
@@ -46,6 +46,7 @@ pub fn run_from_env() -> Result<(), String> {
         "uninstall" => run_tool(ToolScript::TeardownPlayer, parse_options(args)?, quiet),
         "erase-all" => erase_all(args),
         "dev-env" => run_dev_env(args, quiet),
+        "role" => run_role(args),
         "toolchain" => run_toolchain(args),
         "superworkspace" => run_superworkspace(args),
         "source" => run_source(args),
@@ -76,12 +77,14 @@ pub fn help_text() -> String {
         "  vapor-installer app uninstall --confirm",
         "  vapor-installer app erase-all [--confirm]",
         "  vapor-installer install [--app-root PATH] [--dry-run]",
-        "    registers VAPOR_HOME and PATH, then prepares player setup",
         "  vapor-installer uninstall [--app-root PATH] [--dry-run]",
         "  vapor-installer erase-all [--app-root PATH] [--confirm]",
         "  vapor-installer dev-env status [--app-root PATH]",
         "  vapor-installer dev-env install [--app-root PATH] [--dry-run]",
         "  vapor-installer dev-env uninstall [--app-root PATH] [--dry-run]",
+        "  vapor-installer role status",
+        "  vapor-installer role promote <player|developer>",
+        "  vapor-installer role demote <player|developer>",
         "  vapor-installer toolchain install [--dry-run]",
         "  vapor-installer superworkspace create [--path PATH] [--app-root PATH] [--dry-run]",
         "  vapor-installer source status --super-workspace PATH [--app-root PATH]",
@@ -96,6 +99,59 @@ pub fn help_text() -> String {
         "  Legacy app-instance setup and IDE workflow commands call the shared Vapor tool implementation in-process.",
     ]
     .join("\n")
+}
+
+fn run_role(args: Vec<String>) -> Result<(), String> {
+    let mut args = args.into_iter();
+    let action = args
+        .next()
+        .ok_or_else(|| "role requires status, promote, or demote".to_owned())?;
+    match action.as_str() {
+        "status" => {
+            if args.next().is_some() {
+                return Err("role status takes no arguments".to_owned());
+            }
+            let installation = vapor_core::VaporInstallation::discover()
+                .map_err(|error| error.to_string())?;
+            let status = vapor_core::role_status(&installation)
+                .map_err(|error| error.to_string())?;
+            println!("Installed role: {}", status.installed_role);
+            println!("Role state: {}", status.state_path.display());
+            Ok(())
+        }
+        "promote" | "demote" => {
+            let target = args
+                .next()
+                .ok_or_else(|| format!("role {action} requires a target role"))?;
+            if args.next().is_some() {
+                return Err(format!("role {action} accepts one target role"));
+            }
+            let target = target.parse::<vapor_core::VaporRole>()
+                .map_err(|error| error.to_string())?;
+            let installation = vapor_core::VaporInstallation::discover()
+                .map_err(|error| error.to_string())?;
+            let report = if action == "promote" {
+                vapor_core::promote_role(&installation, target)
+            } else {
+                vapor_core::demote_role(&installation, target)
+            }
+            .map_err(|error| error.to_string())?;
+            println!(
+                "Installation role changed from {} to {}.{}",
+                report.previous_role,
+                report.installed_role,
+                if report.developer_environment_changed {
+                    " Developer tools were installed or repaired."
+                } else {
+                    " Required tools were already ready."
+                }
+            );
+            Ok(())
+        }
+        other => Err(format!(
+            "unknown role action '{other}'\nhelp: run `vapor-installer role status`"
+        )),
+    }
 }
 
 fn run_standalone_app(mut args: Vec<String>) -> Result<(), String> {
@@ -364,7 +420,7 @@ fn run_source(mut args: Vec<String>) -> Result<(), String> {
                     println!("  super-workspace: {}", super_workspace.display());
                 }
                 if let Some(app_root) = &options.app_root {
-                    println!("  Vapor-home: {}", app_root.display());
+                    println!("  app-root: {}", app_root.display());
                 }
                 if let Some(revision) = &options.revision {
                     println!("  revision: {revision}");
@@ -442,10 +498,10 @@ fn parse_options(args: Vec<String>) -> Result<ToolOptions, String> {
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--vapor-home" => {
+            "--app-root" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
+                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--dry-run" => options.dry_run = true,
@@ -460,10 +516,10 @@ fn parse_workspace_options(args: Vec<String>) -> Result<WorkspaceOptions, String
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--vapor-home" => {
+            "--app-root" => {
                 let value = iter
                     .next()
-                    .ok_or_else(|| "--vapor-home requires a path".to_owned())?;
+                    .ok_or_else(|| "--app-root requires a path".to_owned())?;
                 options.app_root = Some(PathBuf::from(value));
             }
             "--super-workspace" => {
