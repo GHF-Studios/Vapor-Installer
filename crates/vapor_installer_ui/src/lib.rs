@@ -35,17 +35,10 @@ pub struct InstallerApp {
     standalone_bootstrap: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum InstallerPage {
-    #[default]
-    Overview,
-    Role,
-    Installation,
-}
-
 struct InstallerTaskResult {
     message: String,
     role: Option<InstallationRoleSnapshot>,
+    close_app: bool,
 }
 
 impl InstallerApp {
@@ -215,6 +208,26 @@ impl InstallerApp {
             .map(|message| InstallerTaskResult {
                 message,
                 role: None,
+                close_app: false,
+            });
+            let _ = sender.send(result);
+        });
+    }
+
+    fn run_full_erase(&mut self) {
+        let Some(installation) = self.installation.clone() else {
+            return;
+        };
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+        self.status = "Scheduling complete Vapor data erasure…".to_owned();
+        thread::spawn(move || {
+            let result = vapor_installer::full_erase::schedule(&installation.root).map(|log| {
+                InstallerTaskResult {
+                    message: format!("Vapor erasure is queued. Result log: {}", log.display()),
+                    role: None,
+                    close_app: true,
+                }
             });
             let _ = sender.send(result);
         });
@@ -561,7 +574,7 @@ impl InstallerApp {
                     self.run_installer(InstallerOperation::Status);
                 }
             });
-            egui::CollapsingHeader::new("Advanced installation tools")
+            egui::CollapsingHeader::new("More")
                 .default_open(false)
                 .show(ui, |ui| {
                     if let Some(installation) = &self.installation {
@@ -607,6 +620,17 @@ impl InstallerApp {
                         }
                     }
                 });
+        });
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.colored_label(egui::Color32::LIGHT_RED, "Erase all Vapor data");
+            ui.label("Permanently remove Vapor Home, legacy Vapor settings, managed Rust tools, and the external Vapor compiler tools. Steam game files and the USB recovery drive are excluded.");
+            if ui
+                .add_enabled(self.receiver.is_none() && self.installation.is_some(), egui::Button::new("Review full erasure…"))
+                .clicked()
+            {
+                self.full_erase_phrase.clear();
+                self.confirm_full_erase = true;
+            }
         });
     }
 
@@ -723,7 +747,7 @@ fn parsed_installation_role(snapshot: &InstallationRoleSnapshot) -> Option<vapor
 fn role_description(role: vapor_core::VaporRole) -> &'static str {
     match role {
         vapor_core::VaporRole::Player => {
-            "Play compositions and install content. Developer tools are not required."
+            "Play compositions and install content. Developer tools are not installed."
         }
         vapor_core::VaporRole::Developer => {
             "Create content or work on Vapor. Vapor prepares the complete supported development toolchain."
@@ -836,6 +860,7 @@ fn task_result(response: &ClientResponse) -> InstallerTaskResult {
     InstallerTaskResult {
         message,
         role: Some(role),
+        close_app: false,
     }
 }
 
@@ -878,7 +903,6 @@ fn readiness(ready: bool) -> &'static str {
 #[derive(Clone, Copy)]
 enum InstallerOperation {
     Status,
-    Install,
     Repair,
     Uninstall,
     EraseAll,
@@ -888,7 +912,6 @@ impl InstallerOperation {
     fn label(self) -> &'static str {
         match self {
             Self::Status => "status check",
-            Self::Install => "install",
             Self::Repair => "repair",
             Self::Uninstall => "uninstall",
             Self::EraseAll => "erase all Vapor data",
@@ -1147,7 +1170,7 @@ impl eframe::App for InstallerApp {
             });
         });
         if self.confirm_uninstall {
-            egui::Window::new("Confirm uninstall")
+            egui::Window::new("Remove command registration")
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
@@ -1156,7 +1179,7 @@ impl eframe::App for InstallerApp {
                         if ui.button("Cancel").clicked() {
                             self.confirm_uninstall = false;
                         }
-                        if ui.button("Uninstall Vapor").clicked() {
+                        if ui.button("Remove registration").clicked() {
                             self.confirm_uninstall = false;
                             self.run_installer(InstallerOperation::Uninstall);
                         }

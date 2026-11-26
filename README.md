@@ -29,10 +29,10 @@ vapor-installer status
   -> in-process app-root status
 
 vapor-installer install [--app-root PATH]
-  -> in-process player setup
+  -> register user VAPOR_HOME/PATH, then prepare player setup
 
 vapor-installer uninstall [--app-root PATH]
-  -> in-process player teardown
+  -> remove machine integration while preserving Vapor Home and authored source
 
 vapor-installer erase-all [--app-root PATH] --confirm
   -> preflighted deletion of Vapor User Data and every source repository
@@ -50,6 +50,13 @@ vapor-installer toolchain install
 
 vapor-installer dev-env uninstall [--app-root PATH]
   -> in-process development provider teardown
+
+vapor-installer erase inventory --app-root PATH
+  -> list the exact Vapor-owned paths that a full erasure would remove
+
+vapor-installer erase all --app-root PATH --confirm "ERASE VAPOR"
+  -> remove command registration, then hand deletion to an external helper
+     that waits for the installer process to exit before removing Vapor Home
 
 vapor-installer ide patch-rustrover --super-workspace PATH [--app-root PATH]
   -> in-process RustRover project patch

@@ -27,3 +27,8 @@ pub fn prepare_player_installation(
 pub fn setup_player_for_app_root(app_root: &Path) -> Result<(), String> {
     script_bridge::setup_player_for(app_root)
 }
+
+/// Remove Vapor-managed developer tools from the selected Vapor Home.
+pub fn teardown_development_for_app_root(app_root: &Path) -> Result<(), String> {
+    script_bridge::teardown_development_for(app_root)
+}

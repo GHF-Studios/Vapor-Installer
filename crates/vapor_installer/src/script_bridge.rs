@@ -48,6 +48,47 @@ pub(crate) fn run(
     }
 }
 
+pub(crate) fn install(app_root: Option<&Path>, quiet: bool) -> Result<(), String> {
+    let installation = match app_root {
+        Some(root) => vapor_core::VaporInstallation::from_explicit_root(root.to_path_buf()),
+        None => vapor_core::VaporInstallation::discover(),
+    }
+    .map_err(|error| error.to_string())?;
+    let report = vapor_core::install_installation_for(&installation)
+        .map_err(|error| error.to_string())?;
+    if !quiet {
+        println!("Vapor installed for this user");
+        println!("  Home: {}", report.installation_root.display());
+        println!("  Superworkspace: {}", report.superworkspace_root.display());
+        for item in report.integration {
+            println!("  {item}");
+        }
+    }
+    vapor_tools::setup_player_for(&installation.root)
+}
+
+pub(crate) fn uninstall(app_root: Option<&Path>, quiet: bool) -> Result<(), String> {
+    let installation = match app_root {
+        Some(root) => vapor_core::VaporInstallation::from_explicit_root(root.to_path_buf()),
+        None => vapor_core::VaporInstallation::discover(),
+    }
+    .map_err(|error| error.to_string())?;
+    let report = vapor_core::uninstall_installation_for(
+        &installation,
+        vapor_core::UninstallOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    if !quiet {
+        println!("Vapor was uninstalled from this user account");
+        println!("  Home preserved: {}", report.installation_root.display());
+        println!("  User data preserved: {}", report.data_root.display());
+        for item in report.integration {
+            println!("  {item}");
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn run_ide_workflow() -> Result<(), String> {
     vapor_tools::ide_run_main()
 }
@@ -62,6 +103,10 @@ pub(crate) fn patch_rustrover() -> Result<(), String> {
 
 pub(crate) fn setup_player_for(app_root: &Path) -> Result<(), String> {
     vapor_tools::setup_player_for(app_root)
+}
+
+pub(crate) fn teardown_development_for(app_root: &Path) -> Result<(), String> {
+    vapor_tools::teardown_development_for(app_root)
 }
 
 pub(crate) fn create_superworkspace(root: &Path, app_root: Option<&Path>) -> Result<(), String> {

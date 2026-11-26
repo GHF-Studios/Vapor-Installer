@@ -76,6 +76,7 @@ pub fn help_text() -> String {
         "  vapor-installer app uninstall --confirm",
         "  vapor-installer app erase-all [--confirm]",
         "  vapor-installer install [--app-root PATH] [--dry-run]",
+        "    registers VAPOR_HOME and PATH, then prepares player setup",
         "  vapor-installer uninstall [--app-root PATH] [--dry-run]",
         "  vapor-installer erase-all [--app-root PATH] [--confirm]",
         "  vapor-installer dev-env status [--app-root PATH]",
