@@ -6,5 +6,6 @@ edition.workspace = true
 [dependencies]
 eframe.workspace = true
 vapor_core = { path = "../../../Vapor/crates/vapor_core" }
+vapor_installer = { path = "../vapor_installer" }
 vapor_client = { path = "../../../Vapor/crates/vapor_client" }
 vapor_client_protocol = { path = "../../../Vapor/crates/vapor_client_protocol" }

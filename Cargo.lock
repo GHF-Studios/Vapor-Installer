@@ -4016,6 +4016,7 @@ dependencies = [
  "vapor_client",
  "vapor_client_protocol",
  "vapor_core",
+ "vapor_installer",
 ]
 
 [[package]]
