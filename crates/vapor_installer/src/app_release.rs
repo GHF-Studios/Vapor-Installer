@@ -384,13 +384,24 @@ fn validate_managed_git(
         if asset.size == 0 || asset.size > maximum_size {
             return Err(ReleaseVerificationError::InvalidArtifactSize);
         }
-        validate_hex_digest(&asset.sha256)?;
+        validate_lowercase_hex_digest(&asset.sha256)?;
     }
     Ok(())
 }
 
 fn validate_hex_digest(hex: &str) -> Result<(), ReleaseVerificationError> {
     if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ReleaseVerificationError::InvalidDigest);
+    }
+    Ok(())
+}
+
+fn validate_lowercase_hex_digest(hex: &str) -> Result<(), ReleaseVerificationError> {
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return Err(ReleaseVerificationError::InvalidDigest);
     }
     Ok(())
