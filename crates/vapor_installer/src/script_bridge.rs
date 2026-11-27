@@ -81,7 +81,7 @@ pub(crate) fn uninstall(app_root: Option<&Path>, quiet: bool) -> Result<(), Stri
     if !quiet {
         println!("Vapor was uninstalled from this user account");
         println!("  Home preserved: {}", report.installation_root.display());
-        println!("  User data preserved: {}", report.data_root.display());
+        println!("  User data preserved: {}", report.user_data_root.display());
         for item in report.integration {
             println!("  {item}");
         }
