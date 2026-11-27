@@ -10,6 +10,9 @@ use std::io::Read;
 
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_GIT_ARTIFACT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_GIT_SOURCE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_GIT_NOTICES_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SIGNATURE_HEX_BYTES: usize = 128;
 pub(crate) const RELEASE_ORIGIN: &str = "https://vapor.ghf-studios.site";
 
@@ -35,6 +38,7 @@ pub struct VerifiedReleaseManifest {
     pub minimum_updater_version: Version,
     pub artifact: VerifiedArtifact,
     pub setup: VerifiedArtifact,
+    pub managed_git: Option<VerifiedManagedGitRelease>,
     pub release_notes_url: String,
 }
 
@@ -44,6 +48,16 @@ pub struct VerifiedArtifact {
     pub url: String,
     pub size: u64,
     pub sha256: String,
+}
+
+/// Optional Developer-only Git payload authenticated by the app release signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedManagedGitRelease {
+    pub version: Version,
+    pub platform: String,
+    pub artifact: VerifiedArtifact,
+    pub source: VerifiedArtifact,
+    pub notices: VerifiedArtifact,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +71,8 @@ struct ReleaseManifest {
     minimum_updater_version: String,
     artifact: ReleaseArtifact,
     setup: ReleaseArtifact,
+    #[serde(default)]
+    managed_git: Option<ManagedGitRelease>,
     release_notes_url: String,
 }
 
@@ -66,6 +82,16 @@ struct ReleaseArtifact {
     url: String,
     size: u64,
     sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManagedGitRelease {
+    version: String,
+    platform: String,
+    artifact: ReleaseArtifact,
+    source: ReleaseArtifact,
+    notices: ReleaseArtifact,
 }
 
 /// Authenticate and validate the exact manifest bytes returned by Artifact.
@@ -92,8 +118,13 @@ pub fn verify_manifest(
 
     let manifest: ReleaseManifest = serde_json::from_slice(manifest_bytes)
         .map_err(|_| error("manifest JSON does not match the release schema"))?;
-    if manifest.schema != 1 {
+    if !matches!(manifest.schema, 1 | 2) {
         return Err(error("unsupported release manifest schema"));
+    }
+    if (manifest.schema == 1 && manifest.managed_git.is_some())
+        || (manifest.schema == 2 && manifest.managed_git.is_none())
+    {
+        return Err(error("managed Git metadata does not match the release schema"));
     }
     if !valid_key_id(&manifest.key_id) {
         return Err(error("manifest key_id is invalid"));
@@ -179,6 +210,11 @@ pub fn verify_manifest(
         return Err(error("setup size or SHA-256 is invalid"));
     }
 
+    let managed_git = manifest
+        .managed_git
+        .map(|git| validate_managed_git(git, &version, &manifest.platform))
+        .transpose()?;
+
     Ok(VerifiedReleaseManifest {
         key_id: manifest.key_id,
         version,
@@ -195,8 +231,79 @@ pub fn verify_manifest(
             size: manifest.setup.size,
             sha256: manifest.setup.sha256,
         },
+        managed_git,
         release_notes_url: manifest.release_notes_url,
     })
+}
+
+fn validate_managed_git(
+    git: ManagedGitRelease,
+    release_version: &Version,
+    release_platform: &str,
+) -> Result<VerifiedManagedGitRelease, ReleaseVerificationError> {
+    let version = Version::parse(&git.version)
+        .map_err(|_| error("managed Git version is not valid SemVer"))?;
+    if !version.pre.is_empty() || !version.build.is_empty() {
+        return Err(error("managed Git version must be a stable SemVer release"));
+    }
+    if git.platform != release_platform {
+        return Err(error("managed Git platform does not match the release platform"));
+    }
+    let base = format!(
+        "{RELEASE_ORIGIN}/api/updates/v1/vapor/releases/{release_version}/{release_platform}"
+    );
+    validate_managed_git_artifact(
+        &git.artifact,
+        &format!("{base}/git.tar.gz"),
+        MAX_GIT_ARTIFACT_BYTES,
+    )?;
+    validate_managed_git_artifact(
+        &git.source,
+        &format!("{base}/git-source.tar.gz"),
+        MAX_GIT_SOURCE_BYTES,
+    )?;
+    validate_managed_git_artifact(
+        &git.notices,
+        &format!("{base}/git-notices.tar.gz"),
+        MAX_GIT_NOTICES_BYTES,
+    )?;
+    Ok(VerifiedManagedGitRelease {
+        version,
+        platform: git.platform,
+        artifact: into_verified_artifact(git.artifact),
+        source: into_verified_artifact(git.source),
+        notices: into_verified_artifact(git.notices),
+    })
+}
+
+fn validate_managed_git_artifact(
+    artifact: &ReleaseArtifact,
+    expected_url: &str,
+    maximum_size: u64,
+) -> Result<(), ReleaseVerificationError> {
+    if artifact.url != expected_url {
+        return Err(error("managed Git asset URL is not canonical"));
+    }
+    if artifact.size == 0 || artifact.size > maximum_size {
+        return Err(error("managed Git asset size is empty or exceeds its limit"));
+    }
+    if artifact.sha256.len() != 64
+        || !artifact
+            .sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(error("managed Git asset SHA-256 is invalid"));
+    }
+    Ok(())
+}
+
+fn into_verified_artifact(artifact: ReleaseArtifact) -> VerifiedArtifact {
+    VerifiedArtifact {
+        url: artifact.url,
+        size: artifact.size,
+        sha256: artifact.sha256,
+    }
 }
 
 /// Stream-check an archive against its authenticated size and digest.

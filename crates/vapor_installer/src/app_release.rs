@@ -14,8 +14,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const MANIFEST_SCHEMA: u32 = 1;
+const LEGACY_MANIFEST_SCHEMA: u32 = 1;
+const MANAGED_GIT_MANIFEST_SCHEMA: u32 = 2;
 const MAX_MANIFEST_SIZE: usize = 64 * 1024;
+const MAX_GIT_ARTIFACT_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_GIT_SOURCE_SIZE: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_GIT_NOTICES_SIZE: u64 = 64 * 1024 * 1024;
 const RELEASE_ORIGIN: &str = "https://vapor.ghf-studios.site/api/updates/v1/vapor/releases/";
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -28,6 +32,8 @@ pub struct VaporAppRelease {
     pub minimum_updater_version: Version,
     pub artifact: ReleaseArtifact,
     #[serde(default)]
+    pub managed_git: Option<ManagedGitRelease>,
+    #[serde(default)]
     pub release_notes_url: Option<String>,
 }
 
@@ -36,6 +42,15 @@ pub struct ReleaseArtifact {
     pub url: String,
     pub size: u64,
     pub sha256: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ManagedGitRelease {
+    pub version: Version,
+    pub platform: String,
+    pub artifact: ReleaseArtifact,
+    pub source: ReleaseArtifact,
+    pub notices: ReleaseArtifact,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +248,12 @@ pub fn verify_manifest(
     }
     let manifest: VaporAppRelease = serde_json::from_slice(manifest_bytes)
         .map_err(ReleaseVerificationError::InvalidManifest)?;
-    if manifest.schema != MANIFEST_SCHEMA {
+    if !matches!(
+        manifest.schema,
+        LEGACY_MANIFEST_SCHEMA | MANAGED_GIT_MANIFEST_SCHEMA
+    ) || (manifest.schema == LEGACY_MANIFEST_SCHEMA && manifest.managed_git.is_some())
+        || (manifest.schema == MANAGED_GIT_MANIFEST_SCHEMA && manifest.managed_git.is_none())
+    {
         return Err(ReleaseVerificationError::UnsupportedSchema(manifest.schema));
     }
     if manifest.channel != expected_channel {
@@ -271,6 +291,9 @@ pub fn verify_manifest(
         return Err(ReleaseVerificationError::InvalidArtifactSize);
     }
     validate_hex_digest(&manifest.artifact.sha256)?;
+    if let Some(git) = &manifest.managed_git {
+        validate_managed_git(git, &manifest.version, &manifest.platform)?;
+    }
 
     let key = trusted_keys
         .iter()
@@ -331,6 +354,37 @@ fn validate_artifact_url(
     let expected = format!("{RELEASE_ORIGIN}{version}/{platform}/vapor.tar.gz");
     if url != expected {
         return Err(ReleaseVerificationError::InvalidArtifactUrl);
+    }
+    Ok(())
+}
+
+fn validate_managed_git(
+    git: &ManagedGitRelease,
+    release_version: &Version,
+    release_platform: &str,
+) -> Result<(), ReleaseVerificationError> {
+    if !git.version.pre.is_empty() || !git.version.build.is_empty() {
+        return Err(ReleaseVerificationError::InvalidManagedGitVersion);
+    }
+    if git.platform != release_platform {
+        return Err(ReleaseVerificationError::PlatformMismatch {
+            expected: release_platform.to_owned(),
+            actual: git.platform.clone(),
+        });
+    }
+    let base = format!("{RELEASE_ORIGIN}{release_version}/{release_platform}");
+    for (asset, file_name, maximum_size) in [
+        (&git.artifact, "git.tar.gz", MAX_GIT_ARTIFACT_SIZE),
+        (&git.source, "git-source.tar.gz", MAX_GIT_SOURCE_SIZE),
+        (&git.notices, "git-notices.tar.gz", MAX_GIT_NOTICES_SIZE),
+    ] {
+        if asset.url != format!("{base}/{file_name}") {
+            return Err(ReleaseVerificationError::InvalidArtifactUrl);
+        }
+        if asset.size == 0 || asset.size > maximum_size {
+            return Err(ReleaseVerificationError::InvalidArtifactSize);
+        }
+        validate_hex_digest(&asset.sha256)?;
     }
     Ok(())
 }
@@ -407,6 +461,7 @@ pub enum ReleaseVerificationError {
         installed: Version,
     },
     InvalidArtifactUrl,
+    InvalidManagedGitVersion,
     InvalidDigest,
     InvalidArtifactSize,
     UnknownKey(String),
@@ -466,6 +521,9 @@ impl fmt::Display for ReleaseVerificationError {
             ),
             Self::InvalidArtifactUrl => {
                 formatter.write_str("artifact URL is outside the trusted Vapor release origin")
+            }
+            Self::InvalidManagedGitVersion => {
+                formatter.write_str("managed Git version must be a stable SemVer release")
             }
             Self::InvalidDigest => {
                 formatter.write_str("artifact SHA-256 must be 64 hexadecimal characters")
