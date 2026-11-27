@@ -34,14 +34,21 @@ impl ToolScript {
 
 pub(crate) fn run(
     script: ToolScript,
-    _app_root: Option<&Path>,
+    app_root: Option<&Path>,
     _extra_args: &[String],
     _quiet: bool,
 ) -> Result<(), String> {
     match script {
         ToolScript::Status => vapor_tools::status_main(),
         ToolScript::TeardownPlayer => vapor_tools::teardown_player_main(),
-        ToolScript::SetupDevelopment => vapor_tools::setup_development_main(),
+        ToolScript::SetupDevelopment => {
+            let installation = match app_root {
+                Some(root) => vapor_core::VaporInstallation::from_explicit_root(root.to_path_buf()),
+                None => vapor_core::VaporInstallation::discover(),
+            }
+            .map_err(|error| error.to_string())?;
+            setup_development_for_with_progress(&installation.root, |_| {})
+        }
         ToolScript::TeardownDevelopment => vapor_tools::teardown_development_main(),
         ToolScript::PostInstall => vapor_tools::post_install_main(),
         ToolScript::PreUninstall => vapor_tools::pre_uninstall_main(),
@@ -107,9 +114,18 @@ pub(crate) fn setup_player_for(app_root: &Path) -> Result<(), String> {
 
 pub(crate) fn setup_development_for_with_progress(
     app_root: &Path,
-    report_progress: impl FnMut(&str),
+    mut report_progress: impl FnMut(&str),
 ) -> Result<(), String> {
-    vapor_tools::setup_development_with_progress(app_root, report_progress)
+    let installation = vapor_core::VaporInstallation::from_explicit_root(app_root.to_path_buf())
+        .map_err(|error| error.to_string())?;
+    vapor_tools::setup_development_with_git(app_root, &mut report_progress, |progress| {
+        let report = vapor_core::managed_git::ensure_installed(&installation, |message| {
+            progress(message);
+        })
+        .map_err(|error| error.to_string())?;
+        println!("Vapor-managed Git {} ready at {}", report.version, report.path.display());
+        Ok(())
+    })
 }
 
 pub(crate) fn teardown_development_for(app_root: &Path) -> Result<(), String> {
